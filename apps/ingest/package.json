@@ -1,0 +1,22 @@
+{
+  "name": "@radar/ingest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "types": "wrangler types",
+    "typecheck": "wrangler types && tsc",
+    "test": "wrangler types && vitest run",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@radar/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^24.19.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.147.0"
+  }
+}

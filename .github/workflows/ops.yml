@@ -1,0 +1,133 @@
+name: Ops
+
+# One-off operations, run from the Actions tab on a phone.
+# Note: this repo is public, so anything printed here (including SQL results)
+# is visible to anyone who can see the Actions logs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to run
+        type: choice
+        required: true
+        options:
+          - migrate
+          - sql
+          - set-secret
+          - backfill
+          - trigger-source
+      sql:
+        description: "sql: one read-only statement (SELECT / WITH / EXPLAIN)"
+        type: string
+        required: false
+      secret_name:
+        description: "set-secret: name of a repo secret; its value is copied to the Worker secret with the same name"
+        type: string
+        required: false
+      worker:
+        description: "set-secret: which Worker gets the secret"
+        type: choice
+        options: [ingest, site]
+        default: ingest
+      source:
+        description: "backfill / trigger-source: which source"
+        type: choice
+        options: [all, hn, lobsters, reddit, github, producthunt]
+        default: all
+      days:
+        description: "backfill: how many days back"
+        type: string
+        default: "90"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  FETCH_QUEUE: radar-fetch
+  SOURCES: hn lobsters reddit github producthunt
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+
+      - name: Apply D1 migrations
+        if: inputs.action == 'migrate'
+        working-directory: apps/ingest
+        run: pnpm exec wrangler d1 migrations apply DB --remote
+
+      - name: Run read-only SQL
+        if: inputs.action == 'sql'
+        working-directory: apps/ingest
+        env:
+          SQL: ${{ inputs.sql }}
+        run: |
+          stmt="${SQL%"${SQL##*[![:space:]]}"}" # trim trailing whitespace
+          stmt="${stmt%;}"                       # allow one trailing semicolon
+          [ -n "$stmt" ] || { echo "::error::sql input is empty"; exit 1; }
+          case "$stmt" in *";"*) echo "::error::Only one statement is allowed"; exit 1 ;; esac
+          printf '%s' "$stmt" | grep -qiE '^[[:space:]]*(select|with|explain)\b' \
+            || { echo "::error::Statement must start with SELECT, WITH or EXPLAIN"; exit 1; }
+          if printf '%s' "$stmt" | grep -qiwE 'insert|update|delete|replace|drop|alter|create|attach|detach|vacuum|reindex|pragma'; then
+            echo "::error::Statement contains a write keyword"; exit 1
+          fi
+          pnpm exec wrangler d1 execute DB --remote --json --command "$stmt" > result.json
+          jq '.[0].results' result.json
+          {
+            echo '```json'
+            jq '.[0].results' result.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set Worker secret
+        if: inputs.action == 'set-secret'
+        working-directory: apps/${{ inputs.worker }}
+        env:
+          NAME: ${{ inputs.secret_name }}
+          VALUE: ${{ secrets[inputs.secret_name] }}
+        run: |
+          printf '%s' "$NAME" | grep -qE '^[A-Z][A-Z0-9_]*$' || { echo "::error::secret_name must be UPPER_SNAKE_CASE"; exit 1; }
+          case "$NAME" in CLOUDFLARE_*|GITHUB_*) echo "::error::Refusing to copy $NAME to a Worker"; exit 1 ;; esac
+          [ -n "$VALUE" ] || { echo "::error::Repo secret $NAME not found. Add it under Settings > Secrets and variables > Actions first."; exit 1; }
+          printf '%s' "$VALUE" | pnpm exec wrangler secret put "$NAME"
+
+      # backfill and trigger-source push fetch jobs (see FetchJob in packages/core)
+      # onto the fetch queue through the Cloudflare Queues API.
+      - name: Enqueue fetch jobs
+        if: inputs.action == 'backfill' || inputs.action == 'trigger-source'
+        env:
+          ACTION: ${{ inputs.action }}
+          SOURCE: ${{ inputs.source }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          queue_id=$(curl -fsS -H "$auth" "$api?per_page=100" | jq -r --arg n "$FETCH_QUEUE" '.result[] | select(.queue_name == $n) | .queue_id')
+          [ -n "$queue_id" ] || { echo "::error::Queue $FETCH_QUEUE not found. Run the Bootstrap workflow first."; exit 1; }
+
+          if [ "$ACTION" = backfill ]; then
+            printf '%s' "$DAYS" | grep -qE '^[0-9]+$' || { echo "::error::days must be a whole number"; exit 1; }
+            until=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            since=$(date -u -d "$DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
+          fi
+          sources=$([ "$SOURCE" = all ] && echo "$SOURCES" || echo "$SOURCE")
+
+          for s in $sources; do
+            if [ "$ACTION" = backfill ]; then
+              job=$(jq -nc --arg s "$s" --arg since "$since" --arg until "$until" '{kind:"fetch",source:$s,mode:"backfill",since:$since,until:$until}')
+            else
+              job=$(jq -nc --arg s "$s" '{kind:"fetch",source:$s,mode:"manual"}')
+            fi
+            jq -nc --argjson job "$job" '{body:$job,content_type:"json"}' \
+              | curl -fsS -X POST -H "$auth" -H "Content-Type: application/json" --data @- "$api/$queue_id/messages" > /dev/null
+            echo "Enqueued $job" | tee -a "$GITHUB_STEP_SUMMARY"
+          done

@@ -1,0 +1,96 @@
+name: Bootstrap
+
+# Run once from the Actions tab. Creates the D1 database, R2 bucket and queues,
+# commits the D1 database_id into both wrangler.jsonc files, then starts a
+# deploy. Safe to re-run: existing resources are reused.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the database_id commit to main
+  actions: write # dispatch deploy.yml
+
+concurrency:
+  group: bootstrap
+  cancel-in-progress: false
+
+env:
+  D1_NAME: radar
+  R2_BUCKET: radar-articles
+  QUEUES: radar-fetch radar-classify
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check secrets
+        run: |
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::Repo secret CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::Repo secret CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: ./.github/actions/setup
+
+      # Run wrangler from the repo root so it never picks up (or edits) an app config.
+      - name: Create D1 database
+        id: d1
+        run: |
+          wrangler=apps/ingest/node_modules/.bin/wrangler
+          find_id() { "$wrangler" d1 list --json | jq -r --arg n "$D1_NAME" '.[] | select(.name == $n) | .uuid'; }
+          id=$(find_id)
+          if [ -z "$id" ]; then
+            "$wrangler" d1 create "$D1_NAME" --update-config=false
+            id=$(find_id)
+          else
+            echo "D1 database $D1_NAME already exists"
+          fi
+          [ -n "$id" ] || { echo "::error::Could not find D1 database id"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Create R2 bucket
+        run: |
+          wrangler=apps/ingest/node_modules/.bin/wrangler
+          if "$wrangler" r2 bucket info "$R2_BUCKET" > /dev/null 2>&1; then
+            echo "R2 bucket $R2_BUCKET already exists"
+          else
+            "$wrangler" r2 bucket create "$R2_BUCKET"
+          fi
+
+      - name: Create queues
+        run: |
+          wrangler=apps/ingest/node_modules/.bin/wrangler
+          for q in $QUEUES; do
+            if "$wrangler" queues info "$q" > /dev/null 2>&1; then
+              echo "Queue $q already exists"
+            else
+              "$wrangler" queues create "$q"
+            fi
+          done
+
+      - name: Commit database_id
+        env:
+          D1_ID: ${{ steps.d1.outputs.id }}
+        run: |
+          sed -i -E "s/\"database_id\": \"[^\"]*\"/\"database_id\": \"$D1_ID\"/" apps/ingest/wrangler.jsonc apps/site/wrangler.jsonc
+          if git diff --quiet; then
+            echo "wrangler.jsonc already has database_id $D1_ID"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "Bootstrap: set D1 database_id"
+            git push origin HEAD:main
+          fi
+
+      # Pushes made with GITHUB_TOKEN do not trigger workflows, so start the deploy explicitly.
+      - name: Start deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run deploy.yml --ref main
+          echo "Deploy started: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy.yml" >> "$GITHUB_STEP_SUMMARY"

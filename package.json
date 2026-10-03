@@ -1,0 +1,15 @@
+{
+  "name": "radar",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "db:migrate:local": "pnpm --filter @radar/ingest exec wrangler d1 migrations apply DB --local"
+  }
+}

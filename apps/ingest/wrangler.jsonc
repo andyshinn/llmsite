@@ -1,0 +1,38 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "radar-ingest",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+
+  // Daily run (UTC).
+  "triggers": { "crons": ["0 6 * * *"] },
+
+  // database_id is written by .github/workflows/bootstrap.yml.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "radar",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../migrations"
+    }
+  ],
+
+  // Extracted article text, keyed by post ID.
+  "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "radar-articles" }],
+
+  "ai": { "binding": "AI" },
+
+  "queues": {
+    "producers": [
+      { "binding": "FETCH_QUEUE", "queue": "radar-fetch" },
+      { "binding": "CLASSIFY_QUEUE", "queue": "radar-classify" }
+    ],
+    "consumers": [
+      { "queue": "radar-fetch", "max_batch_size": 1, "max_retries": 3 },
+      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 3 }
+    ]
+  }
+}
