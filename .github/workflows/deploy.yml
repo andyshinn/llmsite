@@ -1,0 +1,78 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Also dispatched by bootstrap.yml once resources exist.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Type check
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Check bootstrap
+        id: bootstrap
+        run: |
+          if grep -q '"database_id": "00000000-0000-0000-0000-000000000000"' apps/ingest/wrangler.jsonc; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cloudflare resources not created yet. Run the Bootstrap workflow; it starts a deploy when done."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply D1 migrations
+        if: steps.bootstrap.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/ingest
+          command: d1 migrations apply DB --remote
+
+      - name: Deploy ingest Worker
+        if: steps.bootstrap.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/ingest
+          command: deploy
+
+      - name: Build site
+        if: steps.bootstrap.outputs.ready == 'true'
+        run: pnpm --filter @radar/site build
+
+      - name: Deploy site Worker
+        id: site
+        if: steps.bootstrap.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/site
+          command: deploy
+
+      - name: Summary
+        if: steps.bootstrap.outputs.ready == 'true'
+        env:
+          SITE_URL: ${{ steps.site.outputs.deployment-url }}
+        run: |
+          echo "Site: $SITE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Health check: $SITE_URL/api/health" >> "$GITHUB_STEP_SUMMARY"

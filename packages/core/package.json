@@ -1,0 +1,20 @@
+{
+  "name": "@radar/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260901.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}
