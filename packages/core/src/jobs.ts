@@ -14,3 +14,10 @@ export const fetchJobSchema = z.object({
   until: z.iso.datetime().optional(),
 });
 export type FetchJob = z.infer<typeof fetchJobSchema>;
+
+// Message body on the classify queue: one post per message.
+export const classifyJobSchema = z.object({
+  kind: z.literal("classify"),
+  post_id: z.number().int().positive(),
+});
+export type ClassifyJob = z.infer<typeof classifyJobSchema>;

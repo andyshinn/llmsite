@@ -1,0 +1,147 @@
+{
+  "hits": [
+    {
+      "_tags": [
+        "story",
+        "author_pella",
+        "story_49973937"
+      ],
+      "author": "pella",
+      "created_at_i": 1791258660,
+      "num_comments": 0,
+      "objectID": "49973937",
+      "points": 1,
+      "title": "Nvidia's Olympus Core: Pushing Server Single Threaded Performance Boundaries",
+      "url": "https://chipsandcheese.com/p/nvidias-olympus-core-pushing-server"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_thepipetogrep",
+        "story_49973878"
+      ],
+      "author": "thepipetogrep",
+      "created_at_i": 1791257941,
+      "num_comments": 1,
+      "objectID": "49973878",
+      "points": 2,
+      "title": "Resurrecting iChat Audio and Video Conferencing",
+      "url": "https://blog.pipetogrep.org/2026/09/11/resurrecting-ichat-audio-and-video-conferencing/"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_doener",
+        "story_49973876"
+      ],
+      "author": "doener",
+      "created_at_i": 1791257908,
+      "num_comments": 0,
+      "objectID": "49973876",
+      "points": 1,
+      "title": "California Prepares to Ban Quartz Countertop Production",
+      "url": "https://www.nytimes.com/2026/10/05/us/politics/quartz-counters-california.html"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_boorad",
+        "story_49973798",
+        "show_hn"
+      ],
+      "author": "boorad",
+      "created_at_i": 1791257098,
+      "num_comments": 0,
+      "objectID": "49973798",
+      "points": 1,
+      "title": "Show HN: Counterbranch – See how your PR changes access control",
+      "url": "https://github.com/marketplace/actions/counterbranch-access-control-change-review"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_balderdash",
+        "story_49973739"
+      ],
+      "author": "balderdash",
+      "created_at_i": 1791256608,
+      "num_comments": 0,
+      "objectID": "49973739",
+      "points": 3,
+      "title": "Drones buzz overhead, troops hunker underground in Ukraine's hellish kill zone",
+      "url": "https://www.npr.org/2026/10/05/nx-s1-5925803/drones-buzz-overhead-troops-hunker-underground-in-ukraines-hellish-kill-zone"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_bhavyshekhaliya",
+        "story_49973659",
+        "show_hn"
+      ],
+      "author": "bhavyshekhaliya",
+      "created_at_i": 1791255791,
+      "num_comments": 2,
+      "objectID": "49973659",
+      "points": 1,
+      "title": "Show HN: Launch Your N8n Integration",
+      "url": "https://www.nativeship.io"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_teivz",
+        "story_49973649",
+        "show_hn"
+      ],
+      "author": "teivz",
+      "created_at_i": 1791255693,
+      "num_comments": 1,
+      "objectID": "49973649",
+      "points": 2,
+      "title": "Show HN: I built an application to work with multiple coding agents",
+      "url": "https://crowsnest.app/"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_vaughands",
+        "story_49973644"
+      ],
+      "author": "vaughands",
+      "created_at_i": 1791255664,
+      "num_comments": 1,
+      "objectID": "49973644",
+      "points": 2,
+      "title": "LLMs may have immensely helped my RSI",
+      "url": "https://vaughanhilts.me/2026/10/05/llms-immensely-helped-my-rsi.html"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_l33t_d0nut",
+        "story_49973642"
+      ],
+      "author": "l33t_d0nut",
+      "created_at_i": 1791255647,
+      "num_comments": 1,
+      "objectID": "49973642",
+      "points": 2,
+      "title": "Iseberg – The PowerShell ISE Reimagined with Avalonia and PowerShell 7",
+      "url": "https://github.com/adamdriscoll/iseberg"
+    },
+    {
+      "_tags": [
+        "story",
+        "author_yesitcan",
+        "story_49973507",
+        "ask_hn"
+      ],
+      "author": "yesitcan",
+      "created_at_i": 1791254295,
+      "num_comments": 0,
+      "objectID": "49973507",
+      "points": 1,
+      "title": "Ask HN: Why does Astra compact context so frequently vs. Fable?"
+    }
+  ]
+}

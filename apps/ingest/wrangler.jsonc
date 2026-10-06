@@ -25,14 +25,20 @@
 
   "ai": { "binding": "AI" },
 
+  // Every Workers AI call goes through this AI Gateway, which enforces the daily
+  // spend limit in infra/ai-gateway.json (applied by deploy.yml).
+  "vars": { "AI_GATEWAY_ID": "radar" },
+
   "queues": {
     "producers": [
       { "binding": "FETCH_QUEUE", "queue": "radar-fetch" },
       { "binding": "CLASSIFY_QUEUE", "queue": "radar-classify" }
     ],
     "consumers": [
-      { "queue": "radar-fetch", "max_batch_size": 1, "max_retries": 3 },
-      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 3 }
+      // Gentle on source APIs; a 90-day HN backfill fans out into 90 of these.
+      { "queue": "radar-fetch", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 2 },
+      // One post per invocation; concurrent tool creation is handled in the resolver.
+      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 5 }
     ]
   }
 }
