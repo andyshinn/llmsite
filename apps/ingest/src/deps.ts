@@ -23,6 +23,7 @@ export function depsFromEnv(env: Env): Deps {
     // Model IDs come from settings, so they are not one of the typed literals.
     ai: (model, input) => env.AI.run(model as Parameters<Ai["run"]>[0], input as never),
     fetch: (input, init) => fetch(input, init),
-    githubToken: (env as { GITHUB_TOKEN?: string }).GITHUB_TOKEN,
+    // Optional Worker secret; README fetches fall back to raw.githubusercontent.com without it.
+    githubToken: (env as { GH_API_TOKEN?: string }).GH_API_TOKEN,
   };
 }
