@@ -23,7 +23,7 @@ export function identifiers(c: Classification, post: PostRef): Identifiers {
   const ids: Identifiers = {};
   const repo = c.github_repo ?? githubRepoFromUrl(post.url);
   if (repo) ids.repo = repo;
-  const host = c.homepage_url ? hostOf(c.homepage_url.includes("://") ? c.homepage_url : `https://${c.homepage_url}`) : null;
+  const host = c.homepage_url ? hostOf(c.homepage_url) : null;
   if (host && !isGenericHost(host)) ids.domain = host;
   const name = normalizeToolName(displayName(c, post));
   if (name) ids.name = name;

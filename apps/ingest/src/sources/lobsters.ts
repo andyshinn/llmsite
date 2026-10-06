@@ -3,7 +3,7 @@ import type { NormalizedPost } from "@radar/core";
 import { getJson } from "../http.ts";
 import type { Adapter } from "./types.ts";
 
-const MAX_PAGES = 200; // 25 stories per page; about 90 days of lobste.rs.
+export const MAX_PAGES = 200; // 25 stories per page; about six months of lobste.rs.
 
 const storySchema = z.object({
   short_id: z.string(),
@@ -56,5 +56,6 @@ export const lobsters: Adapter = {
       yield inWindow.map(toPost);
       if (stories.some((s) => Date.parse(s.created_at) <= since)) return;
     }
+    throw new Error(`lobste.rs: stopped at the ${MAX_PAGES}-page cap before reaching ${new Date(since).toISOString()}`);
   },
 };

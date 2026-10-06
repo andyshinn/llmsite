@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeGithubRepo } from "./urls.ts";
+import { normalizeGithubRepo, parseUrl } from "./urls.ts";
 
 export const POST_TYPES = ["launch", "release", "discussion", "roundup", "news"] as const;
 
@@ -8,13 +8,20 @@ const nullableString = z
   .nullable()
   .transform((v) => (v && v.trim() && v.trim().toLowerCase() !== "null" ? v.trim() : null));
 
+/** "example.dev" -> "https://example.dev/"; anything that is not an http(s) URL -> null. */
+export function normalizeHomepage(value: string | null): string | null {
+  if (!value) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`;
+  return parseUrl(withScheme)?.href ?? null;
+}
+
 /** zod schema for the model's JSON. `categories` comes from the settings table. */
 export function classificationSchema(categories: readonly string[]) {
   return z.object({
     is_ai_dev_tool: z.boolean(),
     post_type: z.enum(POST_TYPES),
     tool_name: z.string().transform((v) => v.trim()),
-    homepage_url: nullableString,
+    homepage_url: nullableString.transform(normalizeHomepage),
     github_repo: nullableString.transform((v) => normalizeGithubRepo(v)),
     version: nullableString,
     category: z.string().refine((v) => categories.includes(v), { message: "category not in settings" }),

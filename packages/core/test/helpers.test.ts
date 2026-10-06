@@ -6,6 +6,7 @@ import {
   githubRepoFromUrl,
   isGenericHost,
   normalizeGithubRepo,
+  normalizeHomepage,
   normalizeToolName,
   prefilterScore,
   similarity,
@@ -101,6 +102,21 @@ describe("tool names", () => {
   it("slugifies", () => {
     expect(slugify("Claude Code (beta)!")).toBe("claude-code-beta");
     expect(slugify("???")).toBe("tool");
+  });
+});
+
+describe("normalizeHomepage", () => {
+  it("keeps http(s) URLs and adds https to bare domains", () => {
+    expect(normalizeHomepage("https://patchwork.dev/docs")).toBe("https://patchwork.dev/docs");
+    expect(normalizeHomepage("patchwork.dev")).toBe("https://patchwork.dev/");
+  });
+
+  it("rejects every other scheme and junk", () => {
+    expect(normalizeHomepage("javascript:alert(1)")).toBeNull();
+    expect(normalizeHomepage("javascript://x.com/%0Aalert(1)")).toBeNull();
+    expect(normalizeHomepage("data:text/html,<script>")).toBeNull();
+    expect(normalizeHomepage("ftp://files.example.com")).toBeNull();
+    expect(normalizeHomepage("not a url")).toBeNull();
   });
 });
 

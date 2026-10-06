@@ -7,6 +7,8 @@ import { USER_AGENT, getJson } from "./http.ts";
 
 // About 3,000 tokens.
 export const MAX_TEXT_CHARS = 12_000;
+// Raw bytes read from any linked page or README; the rest is never downloaded.
+export const MAX_BODY_BYTES = 2_000_000;
 
 export const articleKey = (postId: number) => `text/${postId}.txt`;
 
@@ -61,23 +63,47 @@ async function extract(url: string, deps: Deps): Promise<string> {
   });
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
   const type = res.headers.get("content-type") ?? "";
-  if (type.includes("text/plain") || type.includes("markdown")) return res.text();
-  if (!type.includes("html")) return "";
-  return readable(await res.text());
+  if (type.includes("text/plain") || type.includes("markdown")) return readCapped(res);
+  if (!type.includes("html")) {
+    await res.body?.cancel();
+    return "";
+  }
+  return readable(await readCapped(res));
 }
 
 async function fetchReadme(repo: string, deps: Deps): Promise<string> {
   const headers: Record<string, string> = { "user-agent": USER_AGENT, accept: "application/vnd.github.raw+json" };
   if (deps.githubToken) headers.authorization = `Bearer ${deps.githubToken}`;
   const api = await deps.fetch(`https://api.github.com/repos/${repo}/readme`, { headers, signal: AbortSignal.timeout(15_000) });
-  if (api.ok) return api.text();
+  if (api.ok) return readCapped(api);
   // Unauthenticated API calls are rate limited; raw.githubusercontent.com is not.
   const raw = await deps.fetch(`https://raw.githubusercontent.com/${repo}/HEAD/README.md`, {
     headers: { "user-agent": USER_AGENT },
     signal: AbortSignal.timeout(15_000),
   });
-  if (raw.ok) return raw.text();
+  if (raw.ok) return readCapped(raw);
   throw new Error(`README for ${repo}: api ${api.status}, raw ${raw.status}`);
+}
+
+/** Reads at most `maxBytes` of a body, so a huge or endless response cannot exhaust Worker memory. */
+export async function readCapped(res: Response, maxBytes = MAX_BODY_BYTES): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = value.byteLength > maxBytes - bytes ? value.subarray(0, maxBytes - bytes) : value;
+    bytes += chunk.byteLength;
+    text += decoder.decode(chunk, { stream: true });
+    if (bytes >= maxBytes) {
+      await reader.cancel();
+      break;
+    }
+  }
+  return text + decoder.decode();
 }
 
 /** Main text via Mozilla Readability, falling back to the whole body. */

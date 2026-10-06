@@ -63,7 +63,7 @@ Each source is a small adapter that returns normalized posts. A daily Cron Trigg
 | GitHub | Search API for repos created recently with topics such as `mcp` or `ai-agent`; Trending page scraped | Stars, language, license, topics | Search only; Trending has no history |
 | Product Hunt | GraphQL API with token | Votes, comments, topics | Full via date filter |
 
-Every adapter emits the same shape: source, external ID, URL, title, author, posted time, score and comment count. Dedupe happens before classification, using the canonical URL. A GitHub URL is reduced to `owner/repo`.
+Every adapter emits the same shape: source, external ID, URL, title, author, posted time, score and comment count. Dedupe happens before classification, using the canonical URL. A GitHub URL is reduced to `owner/repo`. A post whose exact URL was already classified reuses that result instead of calling the model; the canonical URL alone is not enough, because a release link and a launch post can share `owner/repo` but need their own type and version.
 
 **Engagement refresh:** each daily run also re-fetches scores and comments for posts linked to active tools. It writes a snapshot row, so trending can measure growth.
 
@@ -76,7 +76,7 @@ Every adapter emits the same shape: source, external ID, URL, title, author, pos
 Every new post passes through three stages. The pre-filter runs inside the fetch job, so only posts that pass it are stored and enqueued. After that, each post is its own queue message, which keeps every invocation well inside Worker CPU limits and gives free retries.
 
 1. **Pre-filter (no AI).** Score the title, URL and domain against a keyword list (`llm`, `agent`, `mcp`, `copilot`, `claude`, `cursor`, `codegen` and so on). GitHub links, Show HN and lobste.rs `ai` or `vibecoding` tags add points. Posts scoring zero are not stored; the fetch job logs how many it dropped. The keyword list lives in settings. A bare `ai` keyword is deliberately left out: on a week of HN it let through about 125 extra posts a day, almost all general AI news.
-2. **Content fetch.** For GitHub links, fetch the README through the API. Otherwise fetch the page and extract the main text with Mozilla Readability and `linkedom`. JS-heavy pages fall back to Browser Rendering. Text is truncated to about 3,000 tokens and cached in R2 so posts can be reclassified later without re-fetching.
+2. **Content fetch.** For GitHub links, fetch the README through the API. Otherwise fetch the page and extract the main text with Mozilla Readability and `linkedom`. JS-heavy pages are meant to fall back to Browser Rendering; that fallback is not built yet, so such pages are classified mostly from their title until the review queue shows it is needed. Text is truncated to about 3,000 tokens and cached in R2 so posts can be reclassified later without re-fetching.
 3. **LLM classification.** One Workers AI call per post, using a 70B-class instruct model such as Llama 3.3 70B. The prompt contains the scope definition, the fixed category list as an enum, and the curated few-shot examples (capped at 20).
 
 The model must return JSON in this shape:

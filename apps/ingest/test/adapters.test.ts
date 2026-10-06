@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizedPostSchema, type NormalizedPost } from "@radar/core";
 import { hn } from "../src/sources/hn.ts";
-import { lobsters, newestPageUrl } from "../src/sources/lobsters.ts";
+import { MAX_PAGES, lobsters, newestPageUrl } from "../src/sources/lobsters.ts";
 import hnSearch from "./fixtures/hn-search.json";
 import lobstersNewest from "./fixtures/lobsters-newest.json";
 import { fakeFetch, json } from "./helpers.ts";
@@ -62,6 +62,13 @@ describe("lobsters adapter", () => {
     const fetcher = fakeFetch(() => json(lobstersNewest));
     const window = { since: Date.parse("2026-12-01T00:00:00Z"), until: Date.parse("2026-12-02T00:00:00Z") };
     await expect(collect(lobsters.fetchPosts(window, fetcher))).rejects.toThrow("looks stale");
+  });
+
+  it("fails instead of reporting success when the page cap stops a backfill early", async () => {
+    const fetcher = fakeFetch(() => json(lobstersNewest)); // every page is still newer than `since`
+    const window = { since: 0, until: Date.parse("2026-10-06T00:00:00Z") };
+    await expect(collect(lobsters.fetchPosts(window, fetcher))).rejects.toThrow(`${MAX_PAGES}-page cap`);
+    expect(fetcher.calls).toHaveLength(MAX_PAGES);
   });
 
   it("keeps paging while every story is inside the window", async () => {

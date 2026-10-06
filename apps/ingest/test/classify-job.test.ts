@@ -176,6 +176,36 @@ describe("runClassifyJob", () => {
     expect((await post(second))!.tool_id).toBe((await post(first))!.tool_id);
   });
 
+  it("classifies a release link on its own even though it shares the repo's canonical URL", async () => {
+    const launch = await insertPost({ url: "https://github.com/patchwork-labs/patchwork" });
+    await runClassifyJob({ kind: "classify", post_id: launch }, makeDeps({ ai: fakeAi(tool()) }));
+
+    const releaseUrl = "https://github.com/patchwork-labs/patchwork/releases/tag/v1.1";
+    const row = await env.DB.prepare(
+      "INSERT INTO posts (source, external_id, url, canonical_url, title, posted_at) VALUES ('lobsters', 'rel', ?, 'https://github.com/patchwork-labs/patchwork', 'Patchwork 1.1', '2026-10-06T00:00:00.000Z') RETURNING id",
+    )
+      .bind(releaseUrl)
+      .first<{ id: number }>();
+    await env.ARTICLES.put(articleKey(row!.id), "Patchwork 1.1 release notes");
+    const ai = fakeAi(tool({ post_type: "release", version: "1.1" }));
+    await runClassifyJob({ kind: "classify", post_id: row!.id }, makeDeps({ ai }));
+
+    expect(ai.calls).toHaveLength(1);
+    const release = await post(row!.id);
+    expect(release).toMatchObject({ post_type: "release", tool_id: (await post(launch))!.tool_id });
+    expect(JSON.parse(release!.classification as string).version).toBe("1.1");
+  });
+
+  it("never stores a non-http homepage on a tool", async () => {
+    const id = await insertPost();
+    await runClassifyJob(
+      { kind: "classify", post_id: id },
+      makeDeps({ ai: fakeAi(tool({ homepage_url: "javascript:alert(document.cookie)" })) }),
+    );
+    const t = await env.DB.prepare("SELECT homepage_url FROM tools WHERE id = ?").bind((await post(id))!.tool_id).first();
+    expect(t).toEqual({ homepage_url: null });
+  });
+
   it("ignores posts that were already routed", async () => {
     const id = await insertPost();
     await runClassifyJob({ kind: "classify", post_id: id }, makeDeps({ ai: fakeAi(tool()) }));

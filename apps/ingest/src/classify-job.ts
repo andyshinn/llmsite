@@ -40,11 +40,15 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   let classification = parseStored(post.classification);
   let via = "stored";
 
-  // Dedupe: another post with the same canonical URL was already classified.
+  // Dedupe: the same link was already classified (e.g. cross-posted to HN and lobste.rs).
+  // Requires the exact URL, not just the canonical one: a GitHub release link shares
+  // its canonical owner/repo URL with the launch post but needs its own type and version.
   if (!classification) {
     const twin = await db
-      .prepare("SELECT classification FROM posts WHERE canonical_url = ? AND id != ? AND classification IS NOT NULL ORDER BY id LIMIT 1")
-      .bind(post.canonical_url, post.id)
+      .prepare(
+        "SELECT classification FROM posts WHERE canonical_url = ? AND url = ? AND id != ? AND classification IS NOT NULL ORDER BY id LIMIT 1",
+      )
+      .bind(post.canonical_url, post.url, post.id)
       .first<{ classification: string }>();
     classification = parseStored(twin?.classification ?? null);
     via = "duplicate_url";

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { articleKey, getArticleText, readable } from "../src/content.ts";
+import { articleKey, getArticleText, readCapped, readable } from "../src/content.ts";
 import articleHtml from "./fixtures/article.html?raw";
 import lobstersStory from "./fixtures/lobsters-story.json";
 import { fakeFetch, json, makeDeps } from "./helpers.ts";
@@ -17,6 +17,26 @@ describe("readable", () => {
     expect(text).not.toContain("Pricing");
     expect(text).not.toContain("window.analytics");
     expect(text).not.toContain("Privacy");
+  });
+});
+
+describe("readCapped", () => {
+  it("stops reading at the byte cap and cancels the rest of the body", async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new TextEncoder().encode("a".repeat(1000)));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const text = await readCapped(new Response(endless), 2500);
+    expect(text).toHaveLength(2500);
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(10);
   });
 });
 
