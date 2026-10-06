@@ -24,3 +24,5 @@ jobs:
         run: pnpm --filter @radar/site build
       - name: Migration dry run (local D1)
         run: pnpm db:migrate:local
+      - name: Validate AI Gateway config
+        run: jq -e '.id and (.spend_limits.rules | length > 0)' infra/ai-gateway.json

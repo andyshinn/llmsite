@@ -44,6 +44,30 @@ jobs:
           workingDirectory: apps/ingest
           command: d1 migrations apply DB --remote
 
+      # Creates or updates the AI Gateway the ingest Worker routes Workers AI
+      # through. Its spend limit blocks AI calls once the daily budget is used;
+      # blocked posts stay pending and the next daily run retries them.
+      - name: Apply AI Gateway config (daily AI spend limit)
+        if: steps.bootstrap.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-gateway/gateways"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          id=$(jq -r .id infra/ai-gateway.json)
+          get=$(curl -sS -o get.json -w '%{http_code}' -H "$auth" "$api/$id")
+          if [ "$get" = 200 ]; then
+            code=$(jq 'del(.id)' infra/ai-gateway.json | curl -sS -o out.json -w '%{http_code}' -X PUT -H "$auth" -H "Content-Type: application/json" --data @- "$api/$id")
+          else
+            code=$(curl -sS -o out.json -w '%{http_code}' -X POST -H "$auth" -H "Content-Type: application/json" --data @infra/ai-gateway.json "$api")
+          fi
+          if [ "$code" != 200 ]; then
+            echo "::error::AI Gateway '$id' update failed (GET $get: $(jq -c .errors get.json); write $code: $(jq -c .errors out.json)). The API token needs the 'AI Gateway: Edit' permission."
+            exit 1
+          fi
+          echo "AI Gateway \`$id\` spend limits: \`$(jq -c .result.spend_limits out.json)\`" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy ingest Worker
         if: steps.bootstrap.outputs.ready == 'true'
         uses: cloudflare/wrangler-action@v4

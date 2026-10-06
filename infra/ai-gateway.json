@@ -1,0 +1,23 @@
+{
+  "id": "radar",
+  "workers_ai_billing_mode": "postpaid",
+  "authentication": false,
+  "collect_logs": false,
+  "cache_ttl": 0,
+  "cache_invalidate_on_update": false,
+  "rate_limiting_interval": 0,
+  "rate_limiting_limit": 0,
+  "spend_limits": {
+    "enabled": true,
+    "rules": [
+      {
+        "id": "daily-cap",
+        "enabled": true,
+        "limitType": "cost",
+        "limit": 2,
+        "window": 86400,
+        "technique": "fixed"
+      }
+    ]
+  }
+}

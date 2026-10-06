@@ -6,20 +6,45 @@ import {
   waitOnExecutionContext,
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { expect, it } from "vitest";
+import { beforeEach, expect, it } from "vitest";
+import { depsFromEnv } from "../src/deps.ts";
 import worker from "../src/index.ts";
-import { fakeQueue } from "./helpers.ts";
+import { fakeQueue, resetDb } from "./helpers.ts";
 
-it("enqueues one daily fetch job per source with an adapter", async () => {
+beforeEach(resetDb);
+
+it("enqueues one daily fetch job per source and re-queues stale pending posts", async () => {
+  const insert = (id: string, createdAt: string) =>
+    env.DB.prepare(
+      "INSERT INTO posts (source, external_id, url, canonical_url, title, posted_at, created_at) VALUES ('hn', ?, 'https://x.dev', 'https://x.dev', 't', ?, ?) RETURNING id",
+    )
+      .bind(id, createdAt, createdAt)
+      .first<{ id: number }>();
+  const stale = await insert("stale", "2026-01-01T00:00:00.000Z");
+  await insert("fresh", new Date().toISOString());
+
   const fetchQ = fakeQueue();
+  const classifyQ = fakeQueue();
   const ctx = createExecutionContext();
   const scheduledTime = Date.parse("2026-10-06T06:00:00Z");
-  await worker.scheduled(createScheduledController({ cron: "0 6 * * *", scheduledTime }), { ...env, FETCH_QUEUE: fetchQ.queue }, ctx);
+  await worker.scheduled(
+    createScheduledController({ cron: "0 6 * * *", scheduledTime }),
+    { ...env, FETCH_QUEUE: fetchQ.queue, CLASSIFY_QUEUE: classifyQ.queue },
+    ctx,
+  );
   await waitOnExecutionContext(ctx);
   expect(fetchQ.sent).toEqual([
     { kind: "fetch", source: "hn", mode: "daily", until: "2026-10-06T06:00:00.000Z" },
     { kind: "fetch", source: "lobsters", mode: "daily", until: "2026-10-06T06:00:00.000Z" },
   ]);
+  expect(classifyQ.sent).toEqual([{ kind: "classify", post_id: stale!.id }]);
+});
+
+it("sends every Workers AI call through the AI Gateway", async () => {
+  const calls: unknown[][] = [];
+  const ai = { run: async (...args: unknown[]) => (calls.push(args), { response: "{}" }) } as unknown as Ai;
+  await depsFromEnv({ ...env, AI: ai }).ai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", { messages: [] });
+  expect(calls[0]![2]).toEqual({ gateway: { id: "radar", skipCache: true } });
 });
 
 it("acks malformed messages and jobs with nothing to do", async () => {

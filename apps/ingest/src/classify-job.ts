@@ -126,3 +126,22 @@ async function loadFewShot(db: D1Database, limit: number): Promise<FewShotExampl
     output: { ...JSON.parse(r.classification), ...(r.corrected_fields ? JSON.parse(r.corrected_fields) : {}) },
   }));
 }
+
+/**
+ * Re-enqueues posts still `pending` an hour after they were stored: their
+ * classify job ran out of retries, for example while the AI Gateway spend
+ * limit was blocking requests. Runs from the daily cron.
+ */
+export async function requeueStalePending(db: D1Database, classifyQueue: Queue, limit = 2000): Promise<number> {
+  const { results } = await db
+    .prepare(
+      "SELECT id FROM posts WHERE status = 'pending' AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') ORDER BY id LIMIT ?",
+    )
+    .bind(limit)
+    .all<{ id: number }>();
+  for (let i = 0; i < results.length; i += 100) {
+    const jobs: ClassifyJob[] = results.slice(i, i + 100).map((r) => ({ kind: "classify", post_id: r.id }));
+    await classifyQueue.sendBatch(jobs.map((body) => ({ body })));
+  }
+  return results.length;
+}

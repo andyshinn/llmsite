@@ -224,6 +224,8 @@ Model prices are approximate, taken from third-party trackers, and should be con
 
 **Deploy:** GitHub Actions on GitHub-hosted runners with `cloudflare/wrangler-action`. On push to `main`, it runs type checks and tests, applies D1 migrations, then deploys. The API token and Reddit, GitHub and Product Hunt credentials are kept in repo secrets and Worker secrets.
 
+**Cost cap:** every Workers AI call goes through an AI Gateway (`radar`) with a daily spend limit, defined in `infra/ai-gateway.json` and applied by `deploy.yml`. When the limit is reached the gateway rejects AI calls; those posts stay `pending` and the next daily run re-enqueues them, so a large backfill spreads over several days instead of running up the bill. A Cloudflare budget alert (Billing > Billable Usage) emails when the month's usage-based spend crosses a set amount.
+
 **Monitoring:** the admin status panel only, as decided. Each run writes `source_runs`, and the panel flags errors and sudden drops in item counts.
 
 **Launch plan:**

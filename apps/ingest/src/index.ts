@@ -1,5 +1,5 @@
 import { type FetchJob, classifyJobSchema, fetchJobSchema } from "@radar/core";
-import { runClassifyJob } from "./classify-job.ts";
+import { requeueStalePending, runClassifyJob } from "./classify-job.ts";
 import { depsFromEnv } from "./deps.ts";
 import { runFetchJob } from "./fetch-job.ts";
 import { ADAPTERS } from "./sources/index.ts";
@@ -8,7 +8,8 @@ export const FETCH_QUEUE = "radar-fetch";
 export const CLASSIFY_QUEUE = "radar-classify";
 
 export default {
-  // Daily run: one fetch job per source that has an adapter.
+  // Daily run: one fetch job per source that has an adapter, plus a retry of
+  // posts left pending (e.g. while the AI spend limit was blocking calls).
   async scheduled(controller, env, _ctx) {
     const until = new Date(controller.scheduledTime).toISOString();
     const jobs: FetchJob[] = Object.keys(ADAPTERS).map((source) => ({
@@ -18,7 +19,8 @@ export default {
       until,
     }));
     await env.FETCH_QUEUE.sendBatch(jobs.map((body) => ({ body })));
-    console.log(JSON.stringify({ event: "cron", sources: jobs.map((j) => j.source) }));
+    const requeued = await requeueStalePending(env.DB, env.CLASSIFY_QUEUE);
+    console.log(JSON.stringify({ event: "cron", sources: jobs.map((j) => j.source), requeued }));
   },
 
   async queue(batch, env, _ctx) {

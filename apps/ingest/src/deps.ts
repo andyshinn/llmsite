@@ -21,7 +21,8 @@ export function depsFromEnv(env: Env): Deps {
     fetchQueue: env.FETCH_QUEUE,
     classifyQueue: env.CLASSIFY_QUEUE,
     // Model IDs come from settings, so they are not one of the typed literals.
-    ai: (model, input) => env.AI.run(model as Parameters<Ai["run"]>[0], input as never),
+    ai: (model, input) =>
+      env.AI.run(model as Parameters<Ai["run"]>[0], input as never, { gateway: { id: env.AI_GATEWAY_ID, skipCache: true } }),
     fetch: (input, init) => fetch(input, init),
     // Optional Worker secret; README fetches fall back to raw.githubusercontent.com without it.
     githubToken: (env as { GH_API_TOKEN?: string }).GH_API_TOKEN,
