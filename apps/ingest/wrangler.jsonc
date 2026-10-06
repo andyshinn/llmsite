@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "radar",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "1857c1e6-46e4-4de4-bff2-d8148d5a3880",
       "migrations_dir": "../../migrations"
     }
   ],
