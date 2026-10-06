@@ -58,7 +58,7 @@ Each source is a small adapter that returns normalized posts. A daily Cron Trigg
 | Source | Method | Native signals | 90-day backfill |
 | --- | --- | --- | --- |
 | Hacker News | Algolia API, filtered by date | Points, comments, Show HN tag | Full |
-| lobste.rs | `/newest.json`, paginated | Score, comments, tags such as `ai` | Full |
+| lobste.rs | `/newest/page/N.json`, paginated | Score, comments, tags such as `ai` and `vibecoding` | Full |
 | Reddit | OAuth API, subreddit listings | Upvotes, comments, flair | Partial: listings stop at about 1,000 posts |
 | GitHub | Search API for repos created recently with topics such as `mcp` or `ai-agent`; Trending page scraped | Stars, language, license, topics | Search only; Trending has no history |
 | Product Hunt | GraphQL API with token | Votes, comments, topics | Full via date filter |
@@ -67,15 +67,15 @@ Every adapter emits the same shape: source, external ID, URL, title, author, pos
 
 **Engagement refresh:** each daily run also re-fetches scores and comments for posts linked to active tools. It writes a snapshot row, so trending can measure growth.
 
-**Backfill:** a one-off job runs the same adapters over 90-day date windows, pushing into the same queue. All backfilled items go to the review queue (threshold set to 1) so classifier quality can be checked before anything is public.
+**Backfill:** a one-off job runs the same adapters over 90-day date windows, pushing into the same queue. Sources whose API filters by date (Hacker News) split the backfill into one fetch job per day; lobste.rs pages back through `/newest` in a single job. All backfilled items go to the review queue (threshold set to 1) so classifier quality can be checked before anything is public.
 
 **Product Hunt terms:** the API terms restrict commercial use. Confirm a public site is allowed before relying on it.
 
 ## Extraction and classification
 
-Every new post passes through three stages. Each post is its own queue message, which keeps every invocation well inside Worker CPU limits and gives free retries.
+Every new post passes through three stages. The pre-filter runs inside the fetch job, so only posts that pass it are stored and enqueued. After that, each post is its own queue message, which keeps every invocation well inside Worker CPU limits and gives free retries.
 
-1. **Pre-filter (no AI).** Score the title, URL and domain against a keyword list (`llm`, `agent`, `mcp`, `copilot`, `claude`, `cursor`, `codegen` and so on). GitHub links, Show HN and lobste.rs `ai` tags add points. Posts scoring zero are dropped and logged. The keyword list lives in settings.
+1. **Pre-filter (no AI).** Score the title, URL and domain against a keyword list (`llm`, `agent`, `mcp`, `copilot`, `claude`, `cursor`, `codegen` and so on). GitHub links, Show HN and lobste.rs `ai` or `vibecoding` tags add points. Posts scoring zero are not stored; the fetch job logs how many it dropped. The keyword list lives in settings. A bare `ai` keyword is deliberately left out: on a week of HN it let through about 125 extra posts a day, almost all general AI news.
 2. **Content fetch.** For GitHub links, fetch the README through the API. Otherwise fetch the page and extract the main text with Mozilla Readability and `linkedom`. JS-heavy pages fall back to Browser Rendering. Text is truncated to about 3,000 tokens and cached in R2 so posts can be reclassified later without re-fetching.
 3. **LLM classification.** One Workers AI call per post, using a 70B-class instruct model such as Llama 3.3 70B. The prompt contains the scope definition, the fixed category list as an enum, and the curated few-shot examples (capped at 20).
 
@@ -100,7 +100,7 @@ The model must return JSON in this shape:
 **Routing after classification:**
 
 - `is_ai_dev_tool` false, or `post_type` roundup: dropped, with the reason stored.
-- `confidence` at or above the review threshold: auto-published.
+- `confidence` at or above the review threshold: auto-published. A threshold of 1 sends everything to review, even confidence 1.0.
 - Below the threshold: sent to the review queue.
 - `category` of `other`: always queued, as a signal that the category list may need to grow.
 
@@ -155,13 +155,15 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 | `tools` | One row per tool | id, slug, name, description, category, tags (JSON), homepage_url, github_repo, is_open_source, status (published, queued, hidden), is_active, trending_score, first_seen_at, last_post_at |
 | `tool_aliases` | Names, domains and repos that resolve to a tool | tool_id, kind (repo, domain, name), value (unique per kind) |
 | `tool_merges` | Merge log, used to undo merges | id, from_tool_id, into_tool_id, moved_aliases (JSON), moved_posts (JSON), merged_at, undone_at |
-| `posts` | One row per submission | id, source, external_id, url, canonical_url, title, author, posted_at, tool_id, post_type, version, classification (JSON), confidence, status (published, queued, rejected, dropped), drop_reason |
+| `posts` | One row per submission | id, source, external_id, url, canonical_url, title, author, posted_at, tool_id, post_type, version, classification (JSON), confidence, status (pending, published, queued, rejected, dropped), drop_reason, raw_output |
 | `post_snapshots` | Daily engagement per post | post_id, date, score, comments |
 | `repo_snapshots` | Daily GitHub stats per tool | tool_id, date, stars, forks, language, license |
 | `review_decisions` | Every approve, reject or edit made in the queue | post_id, decision, corrected_fields (JSON), use_in_prompt, decided_at |
 | `reports` | Visitor reports from tool pages | id, tool_id, reason, note, created_at, resolved_at |
 | `source_runs` | One row per source per run, for the status panel | source, started_at, finished_at, items_fetched, error |
 | `settings` | Tunable values as JSON | key, value |
+
+**Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue.
 
 **Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id` and `max_fewshot`.
 

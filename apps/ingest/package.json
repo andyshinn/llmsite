@@ -10,7 +10,10 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@radar/core": "workspace:*"
+    "@mozilla/readability": "^0.6.0",
+    "@radar/core": "workspace:*",
+    "linkedom": "^0.18.13",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",

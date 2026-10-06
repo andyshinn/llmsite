@@ -1,0 +1,52 @@
+import { z } from "zod";
+import { normalizeGithubRepo } from "./urls.ts";
+
+export const POST_TYPES = ["launch", "release", "discussion", "roundup", "news"] as const;
+
+const nullableString = z
+  .string()
+  .nullable()
+  .transform((v) => (v && v.trim() && v.trim().toLowerCase() !== "null" ? v.trim() : null));
+
+/** zod schema for the model's JSON. `categories` comes from the settings table. */
+export function classificationSchema(categories: readonly string[]) {
+  return z.object({
+    is_ai_dev_tool: z.boolean(),
+    post_type: z.enum(POST_TYPES),
+    tool_name: z.string().transform((v) => v.trim()),
+    homepage_url: nullableString,
+    github_repo: nullableString.transform((v) => normalizeGithubRepo(v)),
+    version: nullableString,
+    category: z.string().refine((v) => categories.includes(v), { message: "category not in settings" }),
+    tags: z.array(z.string().trim().toLowerCase().min(1)).max(10),
+    is_open_source: z.boolean(),
+    description: z.string().transform((v) => v.trim().slice(0, 140)),
+    confidence: z.number().min(0).max(1),
+  });
+}
+export type Classification = z.output<ReturnType<typeof classificationSchema>>;
+
+/** JSON Schema passed to Workers AI JSON mode. Kept by hand to match classificationSchema(). */
+export function classificationJsonSchema(categories: readonly string[]) {
+  const nullable = { type: ["string", "null"] };
+  return {
+    type: "object",
+    properties: {
+      is_ai_dev_tool: { type: "boolean" },
+      post_type: { type: "string", enum: [...POST_TYPES] },
+      tool_name: { type: "string" },
+      homepage_url: nullable,
+      github_repo: nullable,
+      version: nullable,
+      category: { type: "string", enum: [...categories] },
+      tags: { type: "array", items: { type: "string" } },
+      is_open_source: { type: "boolean" },
+      description: { type: "string" },
+      confidence: { type: "number" },
+    },
+    required: [
+      "is_ai_dev_tool", "post_type", "tool_name", "homepage_url", "github_repo", "version",
+      "category", "tags", "is_open_source", "description", "confidence",
+    ],
+  };
+}

@@ -1,16 +1,44 @@
-// Ingest Worker. Launch-plan step 1 stub: the cron handler and queue consumer
-// are wired up so the deploy works end to end; adapters and the classifier
-// arrive in later steps.
+import { type FetchJob, classifyJobSchema, fetchJobSchema } from "@radar/core";
+import { runClassifyJob } from "./classify-job.ts";
+import { depsFromEnv } from "./deps.ts";
+import { runFetchJob } from "./fetch-job.ts";
+import { ADAPTERS } from "./sources/index.ts";
+
+export const FETCH_QUEUE = "radar-fetch";
+export const CLASSIFY_QUEUE = "radar-classify";
 
 export default {
-  async scheduled(controller, _env, _ctx) {
-    console.log(JSON.stringify({ event: "cron", cron: controller.cron, at: new Date(controller.scheduledTime).toISOString() }));
+  // Daily run: one fetch job per source that has an adapter.
+  async scheduled(controller, env, _ctx) {
+    const until = new Date(controller.scheduledTime).toISOString();
+    const jobs: FetchJob[] = Object.keys(ADAPTERS).map((source) => ({
+      kind: "fetch",
+      source: source as FetchJob["source"],
+      mode: "daily",
+      until,
+    }));
+    await env.FETCH_QUEUE.sendBatch(jobs.map((body) => ({ body })));
+    console.log(JSON.stringify({ event: "cron", sources: jobs.map((j) => j.source) }));
   },
 
-  async queue(batch, _env, _ctx) {
+  async queue(batch, env, _ctx) {
+    const deps = depsFromEnv(env);
     for (const message of batch.messages) {
-      console.log(JSON.stringify({ event: "message", queue: batch.queue, id: message.id, body: message.body }));
-      message.ack();
+      try {
+        if (batch.queue === FETCH_QUEUE) {
+          const job = fetchJobSchema.safeParse(message.body);
+          if (job.success) await runFetchJob(job.data, deps);
+          else console.error(JSON.stringify({ event: "bad_message", queue: batch.queue, body: message.body }));
+        } else if (batch.queue === CLASSIFY_QUEUE) {
+          const job = classifyJobSchema.safeParse(message.body);
+          if (job.success) await runClassifyJob(job.data, deps);
+          else console.error(JSON.stringify({ event: "bad_message", queue: batch.queue, body: message.body }));
+        }
+        message.ack();
+      } catch (err) {
+        console.error(JSON.stringify({ event: "job_failed", queue: batch.queue, body: message.body, attempts: message.attempts, error: String(err) }));
+        message.retry({ delaySeconds: 60 * message.attempts });
+      }
     }
   },
 } satisfies ExportedHandler<Env>;
