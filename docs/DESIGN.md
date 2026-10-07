@@ -164,7 +164,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 | `repo_snapshots` | Daily GitHub stats per tool | tool_id, date, stars, forks, language, license |
 | `review_decisions` | Every approve, reject or edit made in the queue | post_id, decision, corrected_fields (JSON), use_in_prompt, decided_at |
 | `reports` | Visitor reports from tool pages | id, tool_id, reason, note, created_at, resolved_at |
-| `source_runs` | One row per source per run, for the status panel | source, started_at, finished_at, items_fetched, error |
+| `source_runs` | One row per source per run, for the status panel | source, mode (daily, manual, backfill), started_at, finished_at, items_fetched, error |
 | `settings` | Tunable values as JSON | key, value |
 
 **Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue.

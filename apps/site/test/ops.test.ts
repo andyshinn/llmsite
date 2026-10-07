@@ -72,10 +72,10 @@ describe("reclassify", () => {
 });
 
 describe("sourceStatuses", () => {
-  const run = (source: string, startedAt: string, items: number | null, error: string | null = null) =>
+  const run = (source: string, startedAt: string, items: number | null, error: string | null = null, mode = "daily", finished = true) =>
     db
-      .prepare("INSERT INTO source_runs (source, started_at, finished_at, items_fetched, error) VALUES (?, ?, ?, ?, ?)")
-      .bind(source, startedAt, startedAt, items, error);
+      .prepare("INSERT INTO source_runs (source, mode, started_at, finished_at, items_fetched, error) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(source, mode, startedAt, finished ? startedAt : null, items, error);
 
   it("reports the last run, the 7-day average and a drop warning", async () => {
     await db.batch([
@@ -91,5 +91,26 @@ describe("sourceStatuses", () => {
     expect(s.lobsters).toMatchObject({ weekAverage: null, dropWarning: false });
     expect(s.github!.last!.error).toContain("403");
     expect(s.github!.dropWarning).toBe(false); // an error is shown instead
+  });
+
+  it("leaves backfill runs out of the comparison", async () => {
+    await db.batch([
+      run("lobsters", "2026-10-03T06:00:00.000Z", 30),
+      run("lobsters", "2026-10-04T12:00:00.000Z", 2400, null, "backfill"),
+      run("lobsters", "2026-10-05T06:00:00.000Z", 28),
+    ]);
+    const lobsters = (await sourceStatuses(db)).find((x) => x.source === "lobsters")!;
+    expect(lobsters).toMatchObject({ weekAverage: 30, dropWarning: false });
+  });
+
+  it("shows a run in progress without treating it as a drop", async () => {
+    await db.batch([
+      run("hn", "2026-10-04T06:00:00.000Z", 1100),
+      run("hn", "2026-10-05T06:00:00.000Z", 1000),
+      run("hn", "2026-10-06T06:00:00.000Z", null, null, "daily", false),
+    ]);
+    const hn = (await sourceStatuses(db)).find((x) => x.source === "hn")!;
+    expect(hn.last).toMatchObject({ finished_at: null, items_fetched: null });
+    expect(hn).toMatchObject({ weekAverage: 1100, dropWarning: false });
   });
 });

@@ -9,6 +9,7 @@ import {
 } from "@radar/core";
 
 export interface SourceRun {
+  mode: string;
   started_at: string;
   finished_at: string | null;
   items_fetched: number | null;
@@ -17,10 +18,15 @@ export interface SourceRun {
 
 export interface SourceStatus {
   source: Source;
+  /** The most recent run of any mode (a backfill shows here too). */
   last: SourceRun | null;
-  /** Average items per finished, error-free run over the 7 days before the last run. */
+  /**
+   * Average items per finished, error-free daily or manual run over the 7 days before
+   * the latest finished daily or manual run. Backfill runs cover different spans, so
+   * they are left out of the comparison.
+   */
   weekAverage: number | null;
-  /** The last run fetched less than half the weekly average. */
+  /** The latest finished daily or manual run fetched less than half the weekly average. */
   dropWarning: boolean;
 }
 
@@ -34,21 +40,30 @@ export async function sourceStatuses(db: D1Database): Promise<SourceStatus[]> {
   return Promise.all(
     ENABLED_SOURCES.map(async (source) => {
       const last = await db
-        .prepare("SELECT started_at, finished_at, items_fetched, error FROM source_runs WHERE source = ? ORDER BY started_at DESC LIMIT 1")
+        .prepare("SELECT mode, started_at, finished_at, items_fetched, error FROM source_runs WHERE source = ? ORDER BY started_at DESC LIMIT 1")
         .bind(source)
         .first<SourceRun>();
-      const avg = last
+      // Only completed, comparable runs: an unfinished run has no item count yet.
+      const latest = await db
+        .prepare(
+          `SELECT started_at, items_fetched FROM source_runs
+           WHERE source = ? AND mode != 'backfill' AND finished_at IS NOT NULL AND items_fetched IS NOT NULL AND error IS NULL
+           ORDER BY started_at DESC LIMIT 1`,
+        )
+        .bind(source)
+        .first<{ started_at: string; items_fetched: number }>();
+      const avg = latest
         ? await db
             .prepare(
               `SELECT avg(items_fetched) AS a FROM source_runs
-               WHERE source = ? AND error IS NULL AND finished_at IS NOT NULL
+               WHERE source = ? AND mode != 'backfill' AND error IS NULL AND finished_at IS NOT NULL AND items_fetched IS NOT NULL
                  AND started_at < ? AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-7 days')`,
             )
-            .bind(source, last.started_at, last.started_at)
+            .bind(source, latest.started_at, latest.started_at)
             .first<{ a: number | null }>()
         : null;
       const weekAverage = avg?.a ?? null;
-      const dropWarning = Boolean(last && !last.error && weekAverage && (last.items_fetched ?? 0) < weekAverage / 2);
+      const dropWarning = Boolean(latest && weekAverage && latest.items_fetched < weekAverage / 2);
       return { source, last, weekAverage, dropWarning };
     }),
   );

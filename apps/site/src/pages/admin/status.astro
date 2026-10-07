@@ -156,7 +156,7 @@ const sourceLabel = (s: string) => (s === "all" ? "all sources" : (SOURCE_LABELS
                     <p class="font-semibold">{SOURCE_LABELS[s.source] ?? s.source}</p>
                     {s.last ? (
                       <p class="mt-0.5 text-sm text-gray-600">
-                        Last run {timeAgo(s.last.started_at)} · {s.last.finished_at ? `${(s.last.items_fetched ?? 0).toLocaleString()} fetched` : "still running"}
+                        Last {s.last.mode === "backfill" ? "backfill" : "run"} {timeAgo(s.last.started_at)} · {s.last.finished_at ? `${(s.last.items_fetched ?? 0).toLocaleString()} fetched` : "still running"}
                         {s.weekAverage !== null && ` · 7-day avg ${Math.round(s.weekAverage).toLocaleString()}`}
                       </p>
                     ) : (
