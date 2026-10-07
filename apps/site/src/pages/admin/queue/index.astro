@@ -1,0 +1,19 @@
+---
+import { env } from "cloudflare:workers";
+import Icon from "../../../components/Icon.astro";
+import Admin from "../../../layouts/Admin.astro";
+import { nextQueuedId } from "../../../lib/review.ts";
+
+// Entry point and "next item" redirect: /admin/queue?after=<id> goes to the next queued post.
+const after = Number(Astro.url.searchParams.get("after") ?? 0) || 0;
+const next = await nextQueuedId(env.DB, after);
+if (next !== null) return Astro.redirect(`/admin/queue/${next}`, 302);
+---
+
+<Admin title="Review queue">
+  <div class="mt-16 text-center">
+    <Icon name="check" class="mx-auto size-12 text-emerald-600" />
+    <h1 class="mt-4 text-xl font-semibold">Queue is empty</h1>
+    <p class="mt-2 text-gray-600">Nothing is waiting for review.</p>
+  </div>
+</Admin>

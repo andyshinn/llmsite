@@ -1,8 +1,7 @@
-import { type Classification, type ClassifyJob, classificationSchema, getSetting } from "@radar/core";
+import { type Classification, type ClassifyJob, classificationSchema, getSetting, resolveTool } from "@radar/core";
 import { type FewShotExample, classifyPost } from "./classifier.ts";
 import { getArticleText } from "./content.ts";
 import type { Deps } from "./deps.ts";
-import { resolveTool } from "./resolver.ts";
 
 interface PostRow {
   id: number;

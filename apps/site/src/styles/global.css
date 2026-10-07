@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* Brand color, used for primary actions and links. Tailwind's palette otherwise. */
+@theme {
+  --color-brand-50: var(--color-indigo-50);
+  --color-brand-100: var(--color-indigo-100);
+  --color-brand-600: var(--color-indigo-600);
+  --color-brand-700: var(--color-indigo-700);
+}

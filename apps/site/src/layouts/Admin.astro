@@ -1,0 +1,25 @@
+---
+import Icon from "../components/Icon.astro";
+import Base from "./Base.astro";
+
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+const email = Astro.locals.adminEmail;
+---
+
+<Base title={`${title} · Radar admin`} noindex>
+  <header class="sticky top-0 z-10 border-b border-gray-200 bg-white">
+    <div class="mx-auto flex h-14 max-w-2xl items-center justify-between gap-4 px-4">
+      <a href="/admin/queue" class="flex items-center gap-2 font-semibold text-gray-900">
+        <Icon name="inbox" class="size-5 text-brand-600" />
+        Radar admin
+      </a>
+      {email && <span class="truncate text-sm text-gray-500">{email}</span>}
+    </div>
+  </header>
+  <main class="mx-auto max-w-2xl px-4 pt-4 pb-40">
+    <slot />
+  </main>
+</Base>

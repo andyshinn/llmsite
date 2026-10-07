@@ -11,7 +11,7 @@ A public site that discovers new AI coding tools daily (HN, lobste.rs, GitHub; P
 - TypeScript everywhere, strict mode.
 - Two Workers:
   - `apps/ingest` — Cron Trigger, source adapters, Queues consumer, classifier, tool resolver, trending job.
-  - `apps/site` — Astro with the Cloudflare adapter (public pages, `/api/*`, `/admin/*`).
+  - `apps/site` — Astro with the Cloudflare adapter (public pages, `/api/*`, `/admin/*`). UI: Tailwind CSS v4, Heroicons, Tailwind Plus Elements only when a widget needs JS. No React.
 - Shared code in `packages/core` (types, D1 queries, schema validation with zod).
 - Cloudflare: D1 (all state), R2 (extracted article text), Queues, Workers AI, Cron Triggers.
 - Config in `wrangler.jsonc` per app. Enable `observability` (Workers Logs) on both Workers.

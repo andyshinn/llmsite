@@ -9,6 +9,9 @@
   "observability": { "enabled": true },
   "assets": { "directory": "./dist", "binding": "ASSETS" },
 
+  // Extracted article text (written by radar-ingest), shown in the admin review queue.
+  "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "radar-articles" }],
+
   // database_id is written by .github/workflows/bootstrap.yml.
   "d1_databases": [
     {

@@ -7,17 +7,24 @@
     "build": "wrangler types && astro build",
     "preview": "astro preview",
     "typecheck": "wrangler types && astro check",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "wrangler types && vitest run"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.3",
     "@radar/core": "workspace:*",
-    "astro": "^7.3.5"
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^7.3.5",
+    "heroicons": "^2.2.0",
+    "jose": "^6.2.12",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@types/node": "^24.19.1",
     "typescript": "^6.0.3",
+    "vitest": "^4.1.11",
     "wrangler": "^4.147.0"
   }
 }
