@@ -143,7 +143,7 @@ jobs:
           node --input-type=module -e 'import { RESET_UNREVIEWED_QUEUED_SQL } from "@radar/core"; console.log(RESET_UNREVIEWED_QUEUED_SQL.join(";\n") + ";")' > reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --file reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --json --command "SELECT id FROM posts WHERE status = 'pending'" \
-            | jq -c '[.[0].results[].id | {body: {kind: "classify", post_id: .}, content_type: "json"}]' > jobs.json
+            | jq -c '[.[0].results[].id | {body: {kind: "classify", post_id: ., force: true}, content_type: "json"}]' > jobs.json
           total=$(jq length jobs.json)
 
           api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"

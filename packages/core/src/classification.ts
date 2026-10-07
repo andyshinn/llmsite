@@ -22,6 +22,8 @@ export function classificationSchema(categories: readonly string[]) {
     reason: z.string().trim().max(400).optional(),
     // Set by the ingest Worker (not the model): which model produced this classification.
     model: z.string().optional(),
+    // Set by the ingest Worker: fingerprint of model, reasoning effort, prompt and categories.
+    classifier: z.string().optional(),
     is_ai_dev_tool: z.boolean(),
     post_type: z.enum(POST_TYPES),
     tool_name: z.string().transform((v) => v.trim()),

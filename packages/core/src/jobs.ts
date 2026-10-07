@@ -20,5 +20,7 @@ export type FetchJob = z.infer<typeof fetchJobSchema>;
 export const classifyJobSchema = z.object({
   kind: z.literal("classify"),
   post_id: z.number().int().positive(),
+  // Always call the model: skip reusing a duplicate URL's result (set by re-classify).
+  force: z.boolean().optional(),
 });
 export type ClassifyJob = z.infer<typeof classifyJobSchema>;

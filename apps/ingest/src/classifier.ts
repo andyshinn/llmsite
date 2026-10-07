@@ -71,6 +71,17 @@ export function userPrompt(post: PostInput, text: string): string {
 }
 
 /**
+ * Identifies the classifier setup a result came from: model, reasoning effort, and the
+ * system prompt (which embeds the categories). Few-shot examples are left out on purpose:
+ * they change with every review, and would stop duplicate-URL reuse almost entirely.
+ */
+export async function classifierFingerprint(model: string, reasoningEffort: string, categories: readonly string[]): Promise<string> {
+  const data = new TextEncoder().encode(JSON.stringify([model, reasoningEffort, systemPrompt(categories)]));
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+  return [...hash.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * The model's answer from a Workers AI result. Older models return `{ response }`
  * (a string, or an object in JSON mode); newer ones return the OpenAI shape
  * `{ choices: [{ message: { content } }] }`.

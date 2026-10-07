@@ -63,7 +63,7 @@ describe("reclassify", () => {
 
     const q = fakeQueue();
     expect(await reclassifyQueued(db, q.queue)).toBe(2);
-    expect(q.sent).toEqual([{ kind: "classify", post_id: 10 }, { kind: "classify", post_id: 11 }]);
+    expect(q.sent).toEqual([{ kind: "classify", post_id: 10, force: true }, { kind: "classify", post_id: 11, force: true }]);
     expect(await postCounts(db)).toEqual({ pending: 2, queued: 1, dropped: 1 });
     const tools = await db.prepare("SELECT id FROM tools ORDER BY id").all<{ id: number }>();
     expect(tools.results.map((t) => t.id)).toEqual([2]); // the junk tool and its alias are gone

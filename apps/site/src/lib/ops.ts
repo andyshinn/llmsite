@@ -88,7 +88,8 @@ export async function reclassifyPreview(db: D1Database): Promise<{ posts: number
 /** Resets unreviewed queued posts and enqueues every pending post for classification. */
 export async function reclassifyQueued(db: D1Database, classifyQueue: Queue): Promise<number> {
   const ids = await resetUnreviewedQueued(db);
-  await sendAll<ClassifyJob>(classifyQueue, ids.map((post_id) => ({ kind: "classify", post_id })));
+  // Forced: re-run the model even when a same-URL post already has a result.
+  await sendAll<ClassifyJob>(classifyQueue, ids.map((post_id) => ({ kind: "classify", post_id, force: true })));
   return ids.length;
 }
 

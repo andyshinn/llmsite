@@ -212,6 +212,25 @@ describe("runClassifyJob", () => {
     await env.DB.prepare("UPDATE settings SET value = '\"@cf/zai-org/glm-5.3-flash\"' WHERE key = 'model_id'").run();
   });
 
+  it("re-runs the model for forced jobs, and after a prompt or category change", async () => {
+    const url = "https://github.com/patchwork-labs/patchwork";
+    const first = await insertPost({ url });
+    await runClassifyJob({ kind: "classify", post_id: first }, makeDeps({ ai: fakeAi(tool()) }));
+
+    const forced = await insertPost({ url });
+    const ai = fakeAi(tool({ post_type: "discussion" }));
+    await runClassifyJob({ kind: "classify", post_id: forced, force: true }, makeDeps({ ai }));
+    expect(ai.calls).toHaveLength(1);
+
+    const before = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first<{ value: string }>();
+    await env.DB.prepare(`UPDATE settings SET value = '["agent","cli","other"]' WHERE key = 'categories'`).run();
+    const afterChange = await insertPost({ url });
+    const ai2 = fakeAi(tool({ category: "cli" }));
+    await runClassifyJob({ kind: "classify", post_id: afterChange }, makeDeps({ ai: ai2 }));
+    expect(ai2.calls).toHaveLength(1);
+    await env.DB.prepare("UPDATE settings SET value = ? WHERE key = 'categories'").bind(before!.value).run();
+  });
+
   it("classifies a release link on its own even though it shares the repo's canonical URL", async () => {
     const launch = await insertPost({ url: "https://github.com/patchwork-labs/patchwork" });
     await runClassifyJob({ kind: "classify", post_id: launch }, makeDeps({ ai: fakeAi(tool()) }));
