@@ -137,9 +137,11 @@ async function createTool(db: D1Database, c: Classification, post: PostRef, ids:
 }
 
 async function uniqueSlug(db: D1Database, base: string): Promise<string> {
+  // No LIKE here: production D1 rejects LIKE patterns over 50 bytes ("pattern too
+  // complex"), while local SQLite allows 50,000, so tests would not catch it.
   const { results } = await db
-    .prepare("SELECT slug FROM tools WHERE slug = ? OR slug LIKE ? || '-%'")
-    .bind(base, base)
+    .prepare("SELECT slug FROM tools WHERE slug = ?1 OR substr(slug, 1, length(?1) + 1) = ?1 || '-'")
+    .bind(base)
     .all<{ slug: string }>();
   const taken = new Set(results.map((r) => r.slug));
   if (!taken.has(base)) return base;

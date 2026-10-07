@@ -99,6 +99,26 @@ describe("runClassifyJob", () => {
     expect(await post(roundup)).toMatchObject({ status: "dropped", drop_reason: "roundup" });
   });
 
+  it("drops a post the model calls a tool but cannot name", async () => {
+    const id = await insertPost({ title: "AI: LLMs, Agents, Work, and Us – Engineers. Personal Thoughts" });
+    const ai = fakeAi(tool({ tool_name: "", github_repo: null, homepage_url: null, post_type: "discussion" }));
+    await runClassifyJob({ kind: "classify", post_id: id }, makeDeps({ ai }));
+    expect(await post(id)).toMatchObject({ status: "dropped", drop_reason: "no_tool_named", tool_id: null });
+  });
+
+  it("gives tools with long names unique slugs", async () => {
+    const name = "An Extremely Long Tool Name That Goes On And On Past Sixty Characters Easily";
+    const a = await insertPost();
+    await runClassifyJob({ kind: "classify", post_id: a }, makeDeps({ ai: fakeAi(tool({ tool_name: name, github_repo: "a/one", homepage_url: null })) }));
+    const b = await insertPost();
+    await runClassifyJob({ kind: "classify", post_id: b }, makeDeps({ ai: fakeAi(tool({ tool_name: `${name} For Enterprise Teams, Second Edition`, github_repo: "b/two", homepage_url: null })) }));
+    const { results } = await env.DB.prepare("SELECT slug FROM tools ORDER BY id").all<{ slug: string }>();
+    expect(results.map((r) => r.slug)).toEqual([
+      "an-extremely-long-tool-name-that-goes-on-and-on-past-sixty-c",
+      "an-extremely-long-tool-name-that-goes-on-and-on-past-sixty-c-2",
+    ]);
+  });
+
   it("retries an invalid response once, then queues it with the raw output", async () => {
     const id = await insertPost();
     const ai = fakeAi("not json", { ...tool(), category: "sdk" });
