@@ -4,7 +4,7 @@ import Icon from "../../../../components/Icon.astro";
 import Notice from "../../../../components/Notice.astro";
 import Admin from "../../../../layouts/Admin.astro";
 import { ReviewError, approvePost, getQueueItem, queueCount, readArticleText, rejectPost } from "../../../../lib/review.ts";
-import { SOURCE_LABELS, btnApprove, btnReject, btnSecondary, card, hostname, timeAgo } from "../../../../lib/ui.ts";
+import { SOURCE_LABELS, btnApprove, btnReject, btnSecondary, card, githubHref, hostname, safeHref, timeAgo } from "../../../../lib/ui.ts";
 
 const id = Number(Astro.params.id);
 if (!Number.isInteger(id) || id <= 0) return Astro.redirect("/admin/queue", 302);
@@ -36,15 +36,16 @@ const confidenceStyle =
   confidence === null ? "bg-gray-100 text-gray-700" : confidence >= 0.9 ? "bg-emerald-50 text-emerald-700" : confidence >= 0.7 ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700";
 
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : Array.isArray(v) ? v.join(", ") || "—" : String(v));
-const rows: [string, unknown][] = c
+// [label, value, optional link]
+const rows: [label: string, value: unknown, href?: string | null][] = c
   ? [
       ["AI coding tool", c.is_ai_dev_tool ? "Yes" : "No"],
       ["Post type", c.post_type],
       ["Tool name", c.tool_name],
       ["Category", c.category],
       ["Version", c.version],
-      ["Homepage", c.homepage_url],
-      ["GitHub", c.github_repo],
+      ["Homepage", c.homepage_url, safeHref(c.homepage_url)],
+      ["GitHub", c.github_repo, githubHref(c.github_repo)],
       ["Open source", c.is_open_source ? "Yes" : "No"],
       ["Tags", c.tags],
       ["Description", c.description],
@@ -102,10 +103,19 @@ try {
     {
       rows.length > 0 && (
         <dl class="mt-4 divide-y divide-gray-100 text-sm">
-          {rows.map(([k, v]) => (
+          {rows.map(([k, v, href]) => (
             <div class="grid grid-cols-3 gap-3 py-2">
               <dt class="text-gray-500">{k}</dt>
-              <dd class="col-span-2 break-words text-gray-900">{fmt(v)}</dd>
+              <dd class="col-span-2 break-words text-gray-900">
+                {href ? (
+                  <a href={href} target="_blank" rel="noopener noreferrer" class="font-medium text-brand-700 underline decoration-brand-100 underline-offset-2 hover:decoration-brand-600">
+                    {fmt(v)}
+                    <Icon name="arrowTopRight" class="mb-0.5 ml-0.5 inline size-4" />
+                  </a>
+                ) : (
+                  fmt(v)
+                )}
+              </dd>
             </div>
           ))}
         </dl>
