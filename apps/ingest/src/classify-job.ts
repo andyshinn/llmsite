@@ -23,10 +23,11 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   // Already routed (e.g. a redelivered message): nothing to do.
   if (!post || post.status !== "pending") return;
 
-  const [threshold, categories, model, maxFewShot] = await Promise.all([
+  const [threshold, categories, model, reasoningEffort, maxFewShot] = await Promise.all([
     getSetting(db, "review_threshold"),
     getSetting(db, "categories"),
     getSetting(db, "model_id"),
+    getSetting(db, "model_reasoning_effort"),
     getSetting(db, "max_fewshot"),
   ]);
   const schema = classificationSchema(categories);
@@ -56,7 +57,7 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   if (!classification) {
     const text = await getArticleText(post, deps);
     const fewShot = await loadFewShot(db, maxFewShot, categories);
-    const result = await classifyPost({ model, categories, post, text, fewShot }, deps.ai);
+    const result = await classifyPost({ model, categories, post, text, fewShot, reasoningEffort: reasoningEffort || undefined }, deps.ai);
     if (!result.ok) {
       await db
         .prepare("UPDATE posts SET status = 'queued', raw_output = ? WHERE id = ?")

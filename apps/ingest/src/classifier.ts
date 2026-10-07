@@ -21,7 +21,8 @@ const CATEGORY_HINTS: Record<string, string> = {
   agent: "coding agents that plan and make changes on their own",
   ide: "AI IDEs and editor extensions",
   cli: "command-line tools",
-  "mcp-server": "Model Context Protocol servers",
+  "mcp-dev": "MCP servers for software development work (code hosts, databases, deployment, testing, error tracking, docs)",
+  "mcp-general": "MCP servers for anything else (data, analytics, research, productivity, commerce)",
   other: "an in-scope tool that fits none of the other categories",
 };
 
@@ -32,7 +33,9 @@ export function systemPrompt(categories: readonly string[]): string {
 Decide whether the post is mainly about ONE specific product or project that is an AI coding tool. Set is_ai_dev_tool to true only if all three hold:
 1. The post presents or discusses one specific, named tool: a launch, a release, a repository, or a post centered on using that tool. News stories, essays, opinion pieces, tutorials, benchmarks, studies and company announcements do not count, even when they mention AI tools.
 2. The tool is for software developers, and its job is writing, reviewing, testing, debugging, running, deploying or managing code.
-3. It uses AI to do that job, or it is built specifically to work with AI coding agents: a plugin, skill, hook or extension for Claude Code, Codex, Cursor or similar; a monitor, orchestrator or session manager for coding agents; or an MCP server.
+3. It uses AI to do that job, or it is built specifically to work with AI coding agents: a plugin, skill, hook or extension for Claude Code, Codex, Cursor or similar; or a monitor, orchestrator or session manager for coding agents.
+
+Exception: a post about one specific MCP (Model Context Protocol) server is always in scope, whatever the server is for. Use category "mcp-dev" when it helps with software development and "mcp-general" otherwise.
 
 These are NOT AI coding tools (is_ai_dev_tool = false):
 - models, inference engines, training or evaluation projects, benchmarks
@@ -46,7 +49,7 @@ When unsure, choose false.
 
 Fields (write "reason" first):
 - reason: one short sentence saying what the post is about and who uses the tool for what.
-- is_ai_dev_tool: true only if all three conditions above hold.
+- is_ai_dev_tool: true only if all three conditions above hold, or the post is about one specific MCP server.
 - post_type: "launch" (a new tool is announced), "release" (a new version of an existing tool), "discussion" (experience, opinion or question about a tool), "roundup" (comparisons, lists, "awesome-X"), or "news".
 - tool_name: the tool's name as its makers write it; "" if there is none.
 - homepage_url: the tool's own website, or null. Not a GitHub, blog or news URL.

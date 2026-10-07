@@ -13,6 +13,8 @@ export const settingSchemas = {
   categories: z.array(z.string().min(1)).min(1),
   prefilter_keywords: z.array(z.string().min(1)),
   model_id: z.string().min(1),
+  // For reasoning models, e.g. "low"; "" sends no reasoning_effort.
+  model_reasoning_effort: z.string(),
   max_fewshot: z.number().int().min(0),
   // GitHub adapter: repos with any of these topics and at least this many stars.
   github_topics: z.array(z.string().min(1)).min(1),

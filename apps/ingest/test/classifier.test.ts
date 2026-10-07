@@ -5,7 +5,7 @@ const valid = {
   reason: "A CLI coding agent.", is_ai_dev_tool: true, post_type: "launch", tool_name: "Patchwork", homepage_url: null,
   github_repo: null, version: null, category: "cli", tags: [], is_open_source: true, description: "d", confidence: 0.9,
 };
-const input = { model: "@cf/x/y", categories: ["agent", "ide", "cli", "mcp-server", "other"], post: { source: "hn", title: "t", url: "u" }, text: "", fewShot: [] };
+const input = { model: "@cf/x/y", categories: ["agent", "ide", "cli", "mcp-dev", "mcp-general", "other"], post: { source: "hn", title: "t", url: "u" }, text: "", fewShot: [] };
 
 describe("modelText", () => {
   it("reads the classic and the OpenAI-style result shapes", () => {

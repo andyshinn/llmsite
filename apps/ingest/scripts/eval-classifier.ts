@@ -22,7 +22,7 @@ const { values: args } = parseArgs({
     out: { type: "string" },
   },
 });
-const CATEGORIES = ["agent", "ide", "cli", "mcp-server", "other"];
+const CATEGORIES = ["agent", "ide", "cli", "mcp-dev", "mcp-general", "other"];
 const NEURON_USD = 0.011 / 1000;
 
 interface Item { post_id: number; source: string; url: string; title: string; in_scope: boolean; mcp_only: boolean }
