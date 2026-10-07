@@ -100,6 +100,7 @@ The model must return JSON in this shape:
 **Routing after classification:**
 
 - `is_ai_dev_tool` false, or `post_type` roundup: dropped, with the reason stored.
+- `is_ai_dev_tool` true but no `tool_name` and no `github_repo`: dropped (`no_tool_named`). Such posts are articles about AI tools in general, not about one tool.
 - `confidence` at or above the review threshold: auto-published. A threshold of 1 sends everything to review, even confidence 1.0.
 - Below the threshold: sent to the review queue.
 - `category` of `other`: always queued, as a signal that the category list may need to grow.

@@ -82,8 +82,11 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
 async function route(db: D1Database, post: PostRow, c: Classification, threshold: number) {
   const fields = [JSON.stringify(c), c.confidence, c.post_type, c.version] as const;
 
-  if (!c.is_ai_dev_tool || c.post_type === "roundup") {
-    const reason = c.is_ai_dev_tool ? "roundup" : "not_ai_dev_tool";
+  // A "tool" the model cannot name (and has no repo for) is an article about AI
+  // tools in general, not a post about one specific tool.
+  const unnamed = !c.tool_name && !c.github_repo;
+  if (!c.is_ai_dev_tool || c.post_type === "roundup" || unnamed) {
+    const reason = !c.is_ai_dev_tool ? "not_ai_dev_tool" : c.post_type === "roundup" ? "roundup" : "no_tool_named";
     await db
       .prepare("UPDATE posts SET classification = ?, confidence = ?, post_type = ?, version = ?, status = 'dropped', drop_reason = ? WHERE id = ?")
       .bind(...fields, reason, post.id)
