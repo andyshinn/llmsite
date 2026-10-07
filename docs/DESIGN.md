@@ -209,9 +209,9 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 
 - **Queue:** each item shows the title, source, extracted text preview and the model's JSON. Actions are approve, reject, edit fields, or reassign to a different tool. Edit and reassign are separate full-screen pages rather than dialogs. Edit stores only the changed fields in `review_decisions.corrected_fields` (the model's output stays in `posts.classification`), updates those fields on the tool, re-resolves the tool if its name, repo or homepage changed, then approves (or rejects, if marked out of scope). Reject records `{"is_ai_dev_tool": false}` so a rejection can serve as a few-shot example. Reassign keeps the post queued.
 - **Tools:** edit tool details, merge two tools, split a past merge, hide a tool.
-- **Settings:** threshold, trending weights, category list, pre-filter keywords and model ID.
+- **Settings:** every key in `settings` (threshold, trending weights, category list, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
-- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average.
+- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions.
 
 **Feedback loop:** every queue decision is stored in `review_decisions`. A checkbox marks a decision as a few-shot example. Only marked rows, up to `max_fewshot`, go into the classifier prompt. A "reclassify" button re-runs the classifier over cached R2 text after the prompt or examples change.
 
@@ -238,10 +238,11 @@ Model prices are approximate, taken from third-party trackers, and should be con
 1. Scaffold the repo: Astro site, ingestion Worker, D1 schema and migrations, CI.
 2. Build the HN and lobste.rs adapters plus classification, then test on a week of data.
 3. Add the GitHub adapter (Reddit dropped; Product Hunt waits for API access).
-4. Build the admin review queue (added: steps 5 and 6 need it).
-5. Run the 90-day backfill with the threshold at 1 and review the queue.
-6. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
-7. Lower the threshold and make the site public.
+4. Build the admin review queue (added: steps 6 and 7 need it).
+5. Build the admin status panel and settings page (added): run a source now, start a backfill, re-classify the queue, and edit every setting without a migration.
+6. Run the 90-day backfill with the threshold at 1 and review the queue.
+7. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
+8. Lower the threshold and make the site public.
 
 **Open questions:**
 
@@ -258,7 +259,7 @@ All development and operations happen from a phone, so nothing may require a loc
 | `ci.yml` | Pull request | Type checks, unit tests, migration dry run |
 | `deploy.yml` | Push to `main` | Applies D1 migrations, then deploys both Workers |
 | `eval.yml` | Manual, with inputs | Scores a classifier model and the current prompt against the hand-labeled set in `evals/classifier` (through the AI Gateway, so the spend cap applies) |
-| `ops.yml` | Manual, with inputs | Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, trigger one source now, or re-classify unreviewed queued posts after a classifier change |
+| `ops.yml` | Manual, with inputs | Fallback for when the admin is unavailable, and for infrastructure. Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, trigger one source now, or re-classify unreviewed queued posts after a classifier change |
 
 **Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, and GitHub repo secrets. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.
 

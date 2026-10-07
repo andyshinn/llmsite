@@ -1,0 +1,223 @@
+---
+import { env } from "cloudflare:workers";
+import { ENABLED_SOURCES } from "@radar/core";
+import Icon from "../../components/Icon.astro";
+import Notice from "../../components/Notice.astro";
+import Admin from "../../layouts/Admin.astro";
+import {
+  MAX_BACKFILL_DAYS,
+  backfillEstimate,
+  postCounts,
+  reclassifyPreview,
+  reclassifyQueued,
+  runNow,
+  sourceStatuses,
+  startBackfill,
+} from "../../lib/ops.ts";
+import { SOURCE_LABELS, btnPrimary, btnSecondary, card, input, label, timeAgo } from "../../lib/ui.ts";
+
+type Confirm =
+  | { kind: "backfill"; source: string; days: number; estimate: ReturnType<typeof backfillEstimate> }
+  | { kind: "reclassify"; posts: number; kept: number };
+
+let error: string | null = null;
+let confirm: Confirm | null = null;
+
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const action = String(form.get("action"));
+  const confirmed = form.get("confirm") === "yes";
+  try {
+    if (action === "run") {
+      const jobs = await runNow(env.FETCH_QUEUE, String(form.get("source")));
+      return Astro.redirect(`/admin/status?done=run&n=${jobs.length}`, 303);
+    }
+    if (action === "backfill") {
+      const source = String(form.get("source"));
+      const days = Number(form.get("days"));
+      if (!confirmed) {
+        if (!Number.isInteger(days) || days < 1 || days > MAX_BACKFILL_DAYS) throw new Error(`Days must be a whole number from 1 to ${MAX_BACKFILL_DAYS}.`);
+        confirm = { kind: "backfill", source, days, estimate: backfillEstimate(source, days) };
+      } else {
+        const jobs = await startBackfill(env.FETCH_QUEUE, source, days);
+        return Astro.redirect(`/admin/status?done=backfill&n=${jobs.length}`, 303);
+      }
+    }
+    if (action === "reclassify") {
+      if (!confirmed) confirm = { kind: "reclassify", ...(await reclassifyPreview(env.DB)) };
+      else {
+        const n = await reclassifyQueued(env.DB, env.CLASSIFY_QUEUE);
+        return Astro.redirect(`/admin/status?done=reclassify&n=${n}`, 303);
+      }
+    }
+    if (!confirm) throw new Error("Unknown action.");
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+    Astro.response.status = 400;
+  }
+}
+
+const minutes = (n: number) => `${n} ${n === 1 ? "minute" : "minutes"}`;
+const done = Astro.url.searchParams.get("done");
+const doneCount = Number(Astro.url.searchParams.get("n") ?? 0);
+const doneMessage =
+  done === "run"
+    ? `Started ${doneCount} fetch ${doneCount === 1 ? "job" : "jobs"}. New posts appear in the queue after classification.`
+    : done === "backfill"
+      ? `Backfill started (${doneCount} ${doneCount === 1 ? "source" : "sources"}). It runs over the next hours or days, within the AI spend cap.`
+      : done === "reclassify"
+        ? `${doneCount.toLocaleString()} posts are waiting for classification. At ~18 a minute this takes about ${minutes(Math.ceil(doneCount / 18))}.`
+        : null;
+
+const [statuses, counts] = await Promise.all([sourceStatuses(env.DB), postCounts(env.DB)]);
+const countRows = [
+  ["pending", "Waiting to classify"],
+  ["queued", "Waiting for review"],
+  ["published", "Published"],
+  ["rejected", "Rejected"],
+  ["dropped", "Dropped"],
+] as const;
+const sourceLabel = (s: string) => (s === "all" ? "all sources" : (SOURCE_LABELS[s] ?? s));
+---
+
+<Admin title="Status" section="status">
+  {error && <Notice tone="error">{error}</Notice>}
+  {doneMessage && <Notice>{doneMessage}</Notice>}
+
+  {
+    confirm ? (
+      <section class={`${card} p-4`}>
+        {confirm.kind === "backfill" ? (
+          <>
+            <h1 class="text-lg font-semibold">
+              Backfill {confirm.days} days of {sourceLabel(confirm.source)}?
+            </h1>
+            <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-700">
+              <li>About {confirm.estimate.posts.toLocaleString()} posts to classify (rough estimate).</li>
+              <li>About ${confirm.estimate.costUsd.toFixed(2)} of Workers AI, within the $2/day AI Gateway cap.</li>
+              <li>At least {Math.ceil(confirm.estimate.hours)} hours at ~18 classifications a minute; longer if the daily cap is reached.</li>
+              <li>Posts already stored are skipped. Everything lands in the review queue while the threshold is 1.</li>
+            </ul>
+          </>
+        ) : (
+          <>
+            <h1 class="text-lg font-semibold">Re-classify {confirm.posts.toLocaleString()} unreviewed queued posts?</h1>
+            <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-700">
+              <li>They go back to "waiting to classify" and are re-run with the current model and prompt, using cached text.</li>
+              <li>Tools only they had created are removed; published tools and anything you reviewed are kept.</li>
+              <li>{confirm.kept.toLocaleString()} queued posts you already acted on (for example, moved) stay as they are.</li>
+              <li>About ${(confirm.posts * 0.0004).toFixed(2)} and {minutes(Math.ceil(confirm.posts / 18))}.</li>
+            </ul>
+          </>
+        )}
+        <form method="post" class="mt-4 grid grid-cols-2 gap-3">
+          <input type="hidden" name="action" value={confirm.kind} />
+          <input type="hidden" name="confirm" value="yes" />
+          {confirm.kind === "backfill" && (
+            <>
+              <input type="hidden" name="source" value={confirm.source} />
+              <input type="hidden" name="days" value={confirm.days} />
+            </>
+          )}
+          <a href="/admin/status" class={btnSecondary}>Cancel</a>
+          <button type="submit" class={btnPrimary}>{confirm.kind === "backfill" ? "Start backfill" : "Re-classify"}</button>
+        </form>
+      </section>
+    ) : (
+      <>
+        <section>
+          <h1 class="text-lg font-semibold">Posts</h1>
+          <dl class={`${card} mt-2 divide-y divide-gray-100 text-sm`}>
+            {countRows.map(([status, text]) => (
+              <div class="flex justify-between px-4 py-2.5">
+                <dt class="text-gray-600">{text}</dt>
+                <dd class="font-semibold tabular-nums">{(counts[status] ?? 0).toLocaleString()}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section class="mt-6">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold">Sources</h2>
+            <form method="post">
+              <input type="hidden" name="action" value="run" />
+              <input type="hidden" name="source" value="all" />
+              <button type="submit" class={btnSecondary}>
+                <Icon name="play" class="size-4 text-gray-500" /> Run all now
+              </button>
+            </form>
+          </div>
+          <ul class="mt-2 space-y-2">
+            {statuses.map((s) => (
+              <li class={`${card} p-4`}>
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="font-semibold">{SOURCE_LABELS[s.source] ?? s.source}</p>
+                    {s.last ? (
+                      <p class="mt-0.5 text-sm text-gray-600">
+                        Last run {timeAgo(s.last.started_at)} · {s.last.finished_at ? `${(s.last.items_fetched ?? 0).toLocaleString()} fetched` : "still running"}
+                        {s.weekAverage !== null && ` · 7-day avg ${Math.round(s.weekAverage).toLocaleString()}`}
+                      </p>
+                    ) : (
+                      <p class="mt-0.5 text-sm text-gray-600">No runs yet</p>
+                    )}
+                  </div>
+                  <form method="post">
+                    <input type="hidden" name="action" value="run" />
+                    <input type="hidden" name="source" value={s.source} />
+                    <button type="submit" class={btnSecondary} aria-label={`Run ${SOURCE_LABELS[s.source] ?? s.source} now`}>
+                      <Icon name="play" class="size-4 text-gray-500" /> Run
+                    </button>
+                  </form>
+                </div>
+                {s.last?.error && (
+                  <p class="mt-2 flex gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-sm break-words text-red-800">
+                    <Icon name="exclamation" class="mt-0.5 size-4 shrink-0" /> {s.last.error}
+                  </p>
+                )}
+                {s.dropWarning && (
+                  <p class="mt-2 flex gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-sm text-amber-800">
+                    <Icon name="exclamation" class="mt-0.5 size-4 shrink-0" /> Fewer than half the usual items. The source may be broken or rate limited.
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section class="mt-6">
+          <h2 class="text-lg font-semibold">Re-classify the queue</h2>
+          <p class="mt-1 text-sm text-gray-600">After changing the model, prompt or categories: re-run classification on queued posts nobody has reviewed yet.</p>
+          <form method="post" class="mt-2">
+            <input type="hidden" name="action" value="reclassify" />
+            <button type="submit" class={`${btnSecondary} w-full`}>
+              <Icon name="arrowPath" class="size-4 text-gray-500" /> Re-classify unreviewed posts…
+            </button>
+          </form>
+        </section>
+
+        <section class="mt-6">
+          <h2 class="text-lg font-semibold">Backfill</h2>
+          <form method="post" class={`${card} mt-2 space-y-3 p-4`}>
+            <input type="hidden" name="action" value="backfill" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="bf-source" class={label}>Source</label>
+                <select id="bf-source" name="source" class={`${input} mt-1`}>
+                  <option value="all">All sources</option>
+                  {ENABLED_SOURCES.map((s) => <option value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label for="bf-days" class={label}>Days back</label>
+                <input id="bf-days" name="days" type="number" inputmode="numeric" min="1" max={MAX_BACKFILL_DAYS} value="90" class={`${input} mt-1`} />
+              </div>
+            </div>
+            <button type="submit" class={`${btnSecondary} w-full`}>Review backfill…</button>
+          </form>
+        </section>
+      </>
+    )
+  }
+</Admin>

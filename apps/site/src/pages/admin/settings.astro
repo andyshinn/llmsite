@@ -1,0 +1,99 @@
+---
+import { env } from "cloudflare:workers";
+import Notice from "../../components/Notice.astro";
+import Admin from "../../layouts/Admin.astro";
+import { REASONING_LEVELS, SETTING_FIELDS, SettingError, WEIGHT_KEYS, loadSettings, saveSetting } from "../../lib/settings-admin.ts";
+import { btnPrimary, card, input, label } from "../../lib/ui.ts";
+
+// Errors and the submitted (unsaved) values, so a rejected edit is not lost.
+let failed: { key: string; message: string; form: FormData } | null = null;
+
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const key = String(form.get("key"));
+  try {
+    await saveSetting(env.DB, key, form);
+    return Astro.redirect(`/admin/settings?saved=${encodeURIComponent(key)}#${key}`, 303);
+  } catch (err) {
+    if (!(err instanceof SettingError)) throw err;
+    failed = { key, message: err.message, form };
+    Astro.response.status = 422;
+  }
+}
+
+const saved = Astro.url.searchParams.get("saved");
+const values = await loadSettings(env.DB);
+const WEIGHT_LABELS: Record<string, string> = { w_s: "Sources", w_e: "Engagement", w_g: "Star growth", g: "Gravity" };
+
+// Value shown in a field: what was just submitted if it failed, else what is stored.
+function shown(key: string, name = "value"): string {
+  if (failed?.key === key) return String(failed.form.get(name) ?? "");
+  const v = values[key];
+  if (name !== "value") return String((v as Record<string, unknown> | undefined)?.[name] ?? "");
+  return Array.isArray(v) ? v.join("\n") : String(v ?? "");
+}
+---
+
+<Admin title="Settings" section="settings">
+  <h1 class="text-lg font-semibold">Settings</h1>
+  <p class="mt-1 text-sm text-gray-600">Changes apply to the next job; no deploy needed.</p>
+
+  <div class="mt-4 space-y-4">
+    {
+      SETTING_FIELDS.map((f) => (
+        <form method="post" id={f.key} class={`${card} scroll-mt-28 p-4`}>
+          <input type="hidden" name="key" value={f.key} />
+          {saved === f.key && <Notice>Saved.</Notice>}
+          {failed?.key === f.key && <Notice tone="error">{failed.message}</Notice>}
+
+          {f.kind === "weights" ? (
+            <fieldset>
+              <legend class={label}>{f.label}</legend>
+              <div class="mt-2 grid grid-cols-2 gap-3">
+                {WEIGHT_KEYS.map((w) => (
+                  <div>
+                    <label for={`${f.key}-${w}`} class="block text-xs text-gray-600">
+                      {WEIGHT_LABELS[w]}
+                    </label>
+                    <input id={`${f.key}-${w}`} name={w} type="number" step="any" inputmode="decimal" value={shown(f.key, w)} class={`${input} mt-1`} />
+                  </div>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            <>
+              <label for={`${f.key}-value`} class={label}>
+                {f.label}
+              </label>
+              {f.kind === "lines" ? (
+                <textarea id={`${f.key}-value`} name="value" rows="6" class={`${input} mt-1 font-mono text-sm`} autocapitalize="off" spellcheck="false">{shown(f.key)}</textarea>
+              ) : f.kind === "reasoning" ? (
+                <select id={`${f.key}-value`} name="value" class={`${input} mt-1`}>
+                  {REASONING_LEVELS.map((r) => (
+                    <option value={r} selected={shown(f.key) === r}>
+                      {r || "(none sent)"}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id={`${f.key}-value`}
+                  name="value"
+                  type={f.kind === "text" ? "text" : "number"}
+                  step={f.kind === "integer" ? "1" : "any"}
+                  inputmode={f.kind === "text" ? undefined : f.kind === "integer" ? "numeric" : "decimal"}
+                  value={shown(f.key)}
+                  class={`${input} mt-1`}
+                  autocomplete="off"
+                  autocapitalize="off"
+                />
+              )}
+            </>
+          )}
+          <p class="mt-2 text-xs text-gray-500">{f.help}</p>
+          <button type="submit" class={`${btnPrimary} mt-3 w-full`}>Save {f.label.toLowerCase()}</button>
+        </form>
+      ))
+    }
+  </div>
+</Admin>

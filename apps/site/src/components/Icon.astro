@@ -1,15 +1,20 @@
 ---
 // Heroicons (20px solid), inlined as SVG so no icon font or JS is needed.
+import arrowPath from "heroicons/20/solid/arrow-path.svg?raw";
 import arrowTopRight from "heroicons/20/solid/arrow-top-right-on-square.svg?raw";
 import arrowsRightLeft from "heroicons/20/solid/arrows-right-left.svg?raw";
+import chartBar from "heroicons/20/solid/chart-bar.svg?raw";
 import check from "heroicons/20/solid/check.svg?raw";
+import cog from "heroicons/20/solid/cog-6-tooth.svg?raw";
+import exclamation from "heroicons/20/solid/exclamation-triangle.svg?raw";
 import forward from "heroicons/20/solid/forward.svg?raw";
 import inbox from "heroicons/20/solid/inbox.svg?raw";
 import magnifyingGlass from "heroicons/20/solid/magnifying-glass.svg?raw";
 import pencil from "heroicons/20/solid/pencil-square.svg?raw";
+import play from "heroicons/20/solid/play.svg?raw";
 import xMark from "heroicons/20/solid/x-mark.svg?raw";
 
-const icons = { arrowTopRight, arrowsRightLeft, check, forward, inbox, magnifyingGlass, pencil, xMark };
+const icons = { arrowPath, arrowTopRight, arrowsRightLeft, chartBar, check, cog, exclamation, forward, inbox, magnifyingGlass, pencil, play, xMark };
 export type IconName = keyof typeof icons;
 
 interface Props {

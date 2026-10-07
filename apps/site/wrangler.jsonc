@@ -16,6 +16,14 @@
     "ACCESS_TEAM_DOMAIN": "andyshinn.cloudflareaccess.com"
   },
 
+  // The admin status panel enqueues fetch and classify jobs; radar-ingest consumes them.
+  "queues": {
+    "producers": [
+      { "binding": "FETCH_QUEUE", "queue": "radar-fetch" },
+      { "binding": "CLASSIFY_QUEUE", "queue": "radar-classify" }
+    ]
+  },
+
   // Extracted article text (written by radar-ingest), shown in the admin review queue.
   "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "radar-articles" }],
 

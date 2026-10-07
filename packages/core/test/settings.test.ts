@@ -25,3 +25,12 @@ describe("fetchJobSchema", () => {
     expect(fetchJobSchema.safeParse({ kind: "fetch", source: "digg", mode: "daily" }).success).toBe(false);
   });
 });
+
+describe("categories setting", () => {
+  it("requires other, lowercase slugs and no duplicates", () => {
+    expect(parseSetting("categories", '["agent","other"]')).toEqual(["agent", "other"]);
+    expect(() => parseSetting("categories", '["agent"]')).toThrow();
+    expect(() => parseSetting("categories", '["Agent","other"]')).toThrow();
+    expect(() => parseSetting("categories", '["other","other"]')).toThrow();
+  });
+});

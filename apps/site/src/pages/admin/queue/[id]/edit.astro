@@ -35,7 +35,7 @@ const s = (k: string) => (v[k] === null || v[k] === undefined ? "" : String(v[k]
 const tags = Array.isArray(v.tags) ? v.tags.join(", ") : "";
 ---
 
-<Admin title="Edit post">
+<Admin title="Edit post" section="queue">
   <a href={`/admin/queue/${id}`} class="text-sm font-medium text-brand-700">← Back to post</a>
   <h1 class="mt-2 text-lg font-semibold">Edit and approve</h1>
   <p class="mt-1 text-sm text-gray-600 break-words">{item.post.title}</p>
