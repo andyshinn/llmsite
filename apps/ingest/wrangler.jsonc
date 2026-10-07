@@ -40,7 +40,8 @@
       // One post at a time: the classifier model (a Workers Paid model) is limited to
       // 20 requests/minute, and one call takes ~3.5s. Concurrent tool creation is
       // still handled in the resolver.
-      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 1 }
+      // Still sometimes rate limited (429); retries are spaced a minute or more apart.
+      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 5, "max_concurrency": 1 }
     ]
   }
 }
