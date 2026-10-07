@@ -11,11 +11,13 @@ if (!Number.isInteger(id) || id <= 0) return Astro.redirect("/admin/queue", 302)
 
 let error: string | null = null;
 let submitted: Record<string, unknown> | null = null;
+let useInPrompt = true;
 if (Astro.request.method === "POST") {
   const form = await Astro.request.formData();
   submitted = parseEditForm(form);
+  useInPrompt = form.get("use_in_prompt") === "on";
   try {
-    await editPost(env.DB, id, submitted, form.get("use_in_prompt") === "on");
+    await editPost(env.DB, id, submitted, useInPrompt);
     return Astro.redirect(`/admin/queue?after=${id}`, 303);
   } catch (err) {
     if (!(err instanceof ReviewError)) throw err;
@@ -107,7 +109,7 @@ const tags = Array.isArray(v.tags) ? v.tags.join(", ") : "";
     </div>
 
     <label class="flex min-h-11 items-center gap-3 text-sm text-gray-700">
-      <input type="checkbox" name="use_in_prompt" checked class="size-5 rounded border-gray-300 accent-brand-600" />
+      <input type="checkbox" name="use_in_prompt" checked={useInPrompt} class="size-5 rounded border-gray-300 accent-brand-600" />
       Use as a few-shot example
     </label>
 

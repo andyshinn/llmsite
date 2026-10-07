@@ -151,10 +151,14 @@ try {
     queued && (
       <form method="post" class="fixed inset-x-0 bottom-0 z-10 border-t border-gray-200 bg-white/95 backdrop-blur">
         <div class="mx-auto max-w-2xl px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <label class="flex min-h-11 items-center gap-3 text-sm text-gray-700">
-            <input type="checkbox" name="use_in_prompt" class="size-5 rounded border-gray-300 accent-brand-600" />
-            Use as a few-shot example
-          </label>
+          {c ? (
+            <label class="flex min-h-11 items-center gap-3 text-sm text-gray-700">
+              <input type="checkbox" name="use_in_prompt" class="size-5 rounded border-gray-300 accent-brand-600" />
+              Use as a few-shot example
+            </label>
+          ) : (
+            <p class="flex min-h-11 items-center text-sm text-gray-500">To use this as an example, fill it in with Edit.</p>
+          )}
           <div class="grid grid-cols-2 gap-3">
             <button type="submit" name="action" value="reject" class={`${btnReject} min-h-14`}>
               <Icon name="xMark" /> Reject

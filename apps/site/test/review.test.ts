@@ -106,6 +106,19 @@ describe("approve and reject", () => {
     expect(await decisions()).toEqual([{ post_id: id, decision: "reject", corrected_fields: '{"is_ai_dev_tool":false}', use_in_prompt: 1 }]);
   });
 
+  it("lets exactly one of two simultaneous submissions win (double tap, two tabs)", async () => {
+    const t = await tool("Patchwork");
+    const id = await post(t);
+    const results = await Promise.allSettled([approvePost(db, id, false), rejectPost(db, id, true), approvePost(db, id, false)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    for (const r of results.filter((r) => r.status === "rejected")) {
+      expect((r as PromiseRejectedResult).reason).toBeInstanceOf(ReviewError);
+    }
+    const rows = await decisions();
+    expect(rows).toHaveLength(1);
+    expect(await status("posts", id)).toBe(rows[0]!.decision === "approve" ? "published" : "rejected");
+  });
+
   it("refuses to act twice on the same post", async () => {
     const id = await post(await tool("Patchwork"));
     await approvePost(db, id, false);
@@ -181,6 +194,14 @@ describe("editPost", () => {
     await editPost(db, id, form({ homepage_url: "javascript:alert(1)" }), false);
     const row = await db.prepare("SELECT homepage_url FROM tools WHERE id = ?").bind(t).first();
     expect(row).toEqual({ homepage_url: null });
+  });
+
+  it("keeps the tool's name when the name is cleared but a repo is given", async () => {
+    const t = await tool("Patchwork");
+    const id = await post(t);
+    await editPost(db, id, form({ tool_name: "", category: "cli" }), false);
+    const row = await db.prepare("SELECT t.name FROM posts p JOIN tools t ON t.id = p.tool_id WHERE p.id = ?").bind(id).first();
+    expect(row).toEqual({ name: "Patchwork" });
   });
 
   it("requires a tool name or repo", async () => {

@@ -71,6 +71,28 @@ async function requireQueued(db: D1Database, id: number): Promise<QueuePost> {
   return item.post;
 }
 
+/**
+ * First statement of every review batch. D1 runs a batch as one transaction, so
+ * if another submission already moved the post out of `queued` (a double tap, a
+ * second tab), this violates the posts.status CHECK constraint and the whole
+ * batch rolls back: exactly one decision wins.
+ */
+function claimQueued(db: D1Database, postId: number) {
+  return db
+    .prepare("UPDATE posts SET status = CASE WHEN status = 'queued' THEN 'queued' ELSE 'already-reviewed' END WHERE id = ?")
+    .bind(postId);
+}
+
+/** Runs a review batch behind claimQueued; a lost race becomes a ReviewError. */
+async function reviewBatch(db: D1Database, postId: number, statements: D1PreparedStatement[]): Promise<void> {
+  try {
+    await db.batch([claimQueued(db, postId), ...statements]);
+  } catch (err) {
+    if (String(err).includes("CHECK constraint failed")) throw new ReviewError("This post was already reviewed.");
+    throw err;
+  }
+}
+
 function decision(db: D1Database, postId: number, kind: string, corrected: Record<string, unknown> | null, useInPrompt: boolean) {
   return db
     .prepare("INSERT INTO review_decisions (post_id, decision, corrected_fields, use_in_prompt) VALUES (?, ?, ?, ?)")
@@ -90,13 +112,13 @@ export async function approvePost(db: D1Database, id: number, useInPrompt: boole
   if (!post.tool_id || !post.classification) {
     throw new ReviewError("This post has no tool yet. Use Edit to fill in the fields, then approve.");
   }
-  await db.batch([...publish(db, id, post.tool_id), decision(db, id, "approve", null, useInPrompt)]);
+  await reviewBatch(db, id, [...publish(db, id, post.tool_id), decision(db, id, "approve", null, useInPrompt)]);
 }
 
 export async function rejectPost(db: D1Database, id: number, useInPrompt: boolean): Promise<void> {
   await requireQueued(db, id);
   // As a few-shot example, a rejection teaches the model "not an AI coding tool".
-  await db.batch([
+  await reviewBatch(db, id, [
     db.prepare("UPDATE posts SET status = 'rejected' WHERE id = ?").bind(id),
     decision(db, id, "reject", { is_ai_dev_tool: false }, useInPrompt),
   ]);
@@ -106,7 +128,7 @@ export async function reassignPost(db: D1Database, id: number, toolId: number): 
   await requireQueued(db, id);
   const tool = await db.prepare("SELECT id FROM tools WHERE id = ?").bind(toolId).first();
   if (!tool) throw new ReviewError("Tool not found.");
-  await db.batch([
+  await reviewBatch(db, id, [
     db.prepare("UPDATE posts SET tool_id = ? WHERE id = ?").bind(toolId, id),
     decision(db, id, "reassign", { tool_id: toolId }, false),
   ]);
@@ -143,7 +165,7 @@ export async function editPost(db: D1Database, id: number, input: Record<string,
   }
 
   if (!c.is_ai_dev_tool || c.post_type === "roundup") {
-    await db.batch([
+    await reviewBatch(db, id, [
       db.prepare("UPDATE posts SET status = 'rejected', post_type = ? WHERE id = ?").bind(c.post_type, id),
       decision(db, id, "edit", corrected, useInPrompt),
     ]);
@@ -152,11 +174,14 @@ export async function editPost(db: D1Database, id: number, input: Record<string,
   if (!c.tool_name && !c.github_repo) throw new ReviewError("Give the tool a name or a GitHub repo.");
 
   const identityChanged = ["tool_name", "github_repo", "homepage_url"].some((f) => f in corrected);
+  // resolveTool also fills *empty* fields of a matched tool from `c` (never overwrites);
+  // `c` is the form the reviewer just saved, so that enrichment is intended.
   const toolId = post.tool_id && !identityChanged ? post.tool_id : await resolveTool(db, c, post);
 
   // Reviewer edits win over model output on the tool, but only for fields they changed.
   const toolUpdates: [string, unknown][] = [];
-  if ("tool_name" in corrected) toolUpdates.push(["name", c.tool_name]);
+  // An emptied name (allowed when a repo is given) keeps the existing or repo-derived name.
+  if ("tool_name" in corrected && c.tool_name) toolUpdates.push(["name", c.tool_name]);
   if ("description" in corrected) toolUpdates.push(["description", c.description || null]);
   if ("category" in corrected) toolUpdates.push(["category", c.category]);
   if ("homepage_url" in corrected) toolUpdates.push(["homepage_url", c.homepage_url]);
@@ -164,7 +189,7 @@ export async function editPost(db: D1Database, id: number, input: Record<string,
   if ("is_open_source" in corrected) toolUpdates.push(["is_open_source", c.is_open_source ? 1 : 0]);
   if ("tags" in corrected) toolUpdates.push(["tags", JSON.stringify(c.tags)]);
 
-  await db.batch([
+  await reviewBatch(db, id, [
     db.prepare("UPDATE posts SET post_type = ?, version = ? WHERE id = ?").bind(c.post_type, c.version, id),
     ...(toolUpdates.length
       ? [
