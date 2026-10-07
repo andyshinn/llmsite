@@ -1,8 +1,7 @@
-import { type Classification, type ClassifyJob, classificationSchema, getSetting } from "@radar/core";
+import { type Classification, type ClassifyJob, classificationSchema, getSetting, resolveTool } from "@radar/core";
 import { type FewShotExample, classifyPost } from "./classifier.ts";
 import { getArticleText } from "./content.ts";
 import type { Deps } from "./deps.ts";
-import { resolveTool } from "./resolver.ts";
 
 interface PostRow {
   id: number;
@@ -56,7 +55,7 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
 
   if (!classification) {
     const text = await getArticleText(post, deps);
-    const fewShot = await loadFewShot(db, maxFewShot);
+    const fewShot = await loadFewShot(db, maxFewShot, categories);
     const result = await classifyPost({ model, categories, post, text, fewShot }, deps.ai);
     if (!result.ok) {
       await db
@@ -116,22 +115,37 @@ async function route(db: D1Database, post: PostRow, c: Classification, threshold
   return { status, tool_id: toolId, confidence: c.confidence };
 }
 
-/** Review decisions marked "use in prompt", newest first, up to max_fewshot. */
-async function loadFewShot(db: D1Database, limit: number): Promise<FewShotExample[]> {
+/**
+ * Review decisions marked "use in prompt", newest first, up to max_fewshot. The
+ * example output is the model's classification with the reviewer's corrections
+ * applied; for posts whose model output was invalid, the corrections alone (an
+ * edit stores every field then). Examples that don't form a complete valid
+ * classification are skipped.
+ */
+export async function loadFewShot(db: D1Database, limit: number, categories: readonly string[]): Promise<FewShotExample[]> {
   if (limit <= 0) return [];
   const { results } = await db
     .prepare(
       `SELECT p.source, p.title, p.url, p.classification, d.corrected_fields
        FROM review_decisions d JOIN posts p ON p.id = d.post_id
-       WHERE d.use_in_prompt = 1 AND p.classification IS NOT NULL
-       ORDER BY d.decided_at DESC LIMIT ?`,
+       WHERE d.use_in_prompt = 1
+       ORDER BY d.decided_at DESC, d.id DESC LIMIT ?`,
     )
-    .bind(limit)
-    .all<{ source: string; title: string; url: string; classification: string; corrected_fields: string | null }>();
-  return results.map((r) => ({
-    post: { source: r.source, title: r.title, url: r.url },
-    output: { ...JSON.parse(r.classification), ...(r.corrected_fields ? JSON.parse(r.corrected_fields) : {}) },
-  }));
+    .bind(limit * 3)
+    .all<{ source: string; title: string; url: string; classification: string | null; corrected_fields: string | null }>();
+  const schema = classificationSchema(categories);
+  const examples: FewShotExample[] = [];
+  for (const r of results) {
+    const merged = {
+      confidence: 1,
+      ...(r.classification ? JSON.parse(r.classification) : {}),
+      ...(r.corrected_fields ? JSON.parse(r.corrected_fields) : {}),
+    };
+    if (!schema.safeParse(merged).success) continue;
+    examples.push({ post: { source: r.source, title: r.title, url: r.url }, output: merged });
+    if (examples.length === limit) break;
+  }
+  return examples;
 }
 
 /**

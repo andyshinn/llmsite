@@ -1,0 +1,65 @@
+---
+import { env } from "cloudflare:workers";
+import Icon from "../../../../components/Icon.astro";
+import Notice from "../../../../components/Notice.astro";
+import Admin from "../../../../layouts/Admin.astro";
+import { ReviewError, getQueueItem, reassignPost, searchTools } from "../../../../lib/review.ts";
+import { btnPrimary, card, input } from "../../../../lib/ui.ts";
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id <= 0) return Astro.redirect("/admin/queue", 302);
+
+let error: string | null = null;
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  try {
+    await reassignPost(env.DB, id, Number(form.get("tool_id")));
+    return Astro.redirect(`/admin/queue/${id}`, 303);
+  } catch (err) {
+    if (!(err instanceof ReviewError)) throw err;
+    error = err.message;
+    Astro.response.status = 409;
+  }
+}
+
+const item = await getQueueItem(env.DB, id);
+if (!item || item.post.status !== "queued") return Astro.redirect(`/admin/queue/${id}`, 302);
+const q = (Astro.url.searchParams.get("q") ?? item.tool?.name ?? "").trim();
+const results = q ? (await searchTools(env.DB, q)).filter((t) => t.id !== item.tool?.id) : [];
+---
+
+<Admin title="Move to another tool">
+  <a href={`/admin/queue/${id}`} class="text-sm font-medium text-brand-700">← Back to post</a>
+  <h1 class="mt-2 text-lg font-semibold">Move to another tool</h1>
+  <p class="mt-1 text-sm text-gray-600">
+    Currently: <span class="font-medium text-gray-900">{item.tool?.name ?? "no tool"}</span>
+  </p>
+
+  {error && <div class="mt-4"><Notice tone="error">{error}</Notice></div>}
+
+  <form method="get" class="mt-4 flex gap-2" role="search">
+    <input type="search" name="q" value={q} placeholder="Search tools" aria-label="Search tools" class={input} autocomplete="off" autocapitalize="off" />
+    <button type="submit" class={btnPrimary} aria-label="Search"><Icon name="magnifyingGlass" /></button>
+  </form>
+
+  <ul class={`${card} mt-4 divide-y divide-gray-100`}>
+    {results.length === 0 && <li class="p-4 text-sm text-gray-600">{q ? "No other tools match." : "Search by name, description or tag."}</li>}
+    {results.map((t) => (
+      <li>
+        <form method="post">
+          <input type="hidden" name="tool_id" value={t.id} />
+          <button type="submit" class="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50">
+            <span>
+              <span class="block font-medium text-gray-900">{t.name}</span>
+              <span class="block text-sm text-gray-500">
+                {t.category ?? "uncategorized"} · {t.posts} {t.posts === 1 ? "post" : "posts"} · {t.status}
+              </span>
+            </span>
+            <Icon name="arrowsRightLeft" class="size-5 shrink-0 text-gray-400" />
+          </button>
+        </form>
+      </li>
+    ))}
+  </ul>
+  <p class="mt-3 text-xs text-gray-500">Moving keeps the post in the queue so you can approve it afterwards.</p>
+</Admin>

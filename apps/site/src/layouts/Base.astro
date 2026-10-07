@@ -1,28 +1,22 @@
 ---
+import "../styles/global.css";
+
 interface Props {
   title: string;
+  noindex?: boolean;
 }
-const { title } = Astro.props;
+const { title, noindex = false } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" class="h-full bg-gray-50">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
     <title>{title}</title>
   </head>
-  <body>
+  <body class="h-full text-gray-900 antialiased">
     <slot />
   </body>
 </html>
-
-<style is:global>
-  body {
-    font-family: system-ui, sans-serif;
-    max-width: 40rem;
-    margin: 0 auto;
-    padding: 1.5rem 1rem;
-    line-height: 1.5;
-  }
-</style>

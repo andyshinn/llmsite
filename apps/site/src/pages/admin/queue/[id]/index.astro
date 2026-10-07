@@ -1,0 +1,174 @@
+---
+import { env } from "cloudflare:workers";
+import Icon from "../../../../components/Icon.astro";
+import Notice from "../../../../components/Notice.astro";
+import Admin from "../../../../layouts/Admin.astro";
+import { ReviewError, approvePost, getQueueItem, queueCount, readArticleText, rejectPost } from "../../../../lib/review.ts";
+import { SOURCE_LABELS, btnApprove, btnReject, btnSecondary, card, hostname, timeAgo } from "../../../../lib/ui.ts";
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id <= 0) return Astro.redirect("/admin/queue", 302);
+
+let error: string | null = null;
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const action = form.get("action");
+  const useInPrompt = form.get("use_in_prompt") === "on";
+  try {
+    if (action === "approve") await approvePost(env.DB, id, useInPrompt);
+    else if (action === "reject") await rejectPost(env.DB, id, useInPrompt);
+    else if (action !== "skip") throw new ReviewError("Unknown action.");
+    return Astro.redirect(`/admin/queue?after=${id}`, 303);
+  } catch (err) {
+    if (!(err instanceof ReviewError)) throw err;
+    error = err.message;
+    Astro.response.status = 409;
+  }
+}
+
+const item = await getQueueItem(env.DB, id);
+if (!item) return Astro.redirect("/admin/queue", 302);
+const { post, classification: c, tool } = item;
+const [remaining, text] = await Promise.all([queueCount(env.DB), readArticleText(env.ARTICLES, id)]);
+const queued = post.status === "queued";
+const confidence = post.confidence;
+const confidenceStyle =
+  confidence === null ? "bg-gray-100 text-gray-700" : confidence >= 0.9 ? "bg-emerald-50 text-emerald-700" : confidence >= 0.7 ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700";
+
+const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : Array.isArray(v) ? v.join(", ") || "—" : String(v));
+const rows: [string, unknown][] = c
+  ? [
+      ["AI coding tool", c.is_ai_dev_tool ? "Yes" : "No"],
+      ["Post type", c.post_type],
+      ["Tool name", c.tool_name],
+      ["Category", c.category],
+      ["Version", c.version],
+      ["Homepage", c.homepage_url],
+      ["GitHub", c.github_repo],
+      ["Open source", c.is_open_source ? "Yes" : "No"],
+      ["Tags", c.tags],
+      ["Description", c.description],
+    ]
+  : [];
+let raw: { raw?: string; error?: string } | null = null;
+try {
+  raw = post.raw_output ? JSON.parse(post.raw_output) : null;
+} catch {
+  raw = { raw: post.raw_output ?? "" };
+}
+---
+
+<Admin title="Review queue">
+  <div class="mb-3 flex items-baseline justify-between">
+    <h1 class="text-lg font-semibold">Review queue</h1>
+    <span class="text-sm text-gray-500">{remaining} waiting</span>
+  </div>
+
+  {error && <Notice tone="error">{error}</Notice>}
+  {!queued && <Notice>This post is already {post.status}.</Notice>}
+
+  <article class={`${card} p-4`}>
+    <div class="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+      <span class="rounded-md bg-gray-100 px-2 py-0.5 font-medium text-gray-700">{SOURCE_LABELS[post.source] ?? post.source}</span>
+      <span>{timeAgo(post.posted_at)}</span>
+      {post.author && <span>by {post.author}</span>}
+      <span class={`ml-auto rounded-md px-2 py-0.5 font-medium ${confidenceStyle}`}>
+        {confidence === null ? "no score" : `${Math.round(confidence * 100)}%`}
+      </span>
+    </div>
+    <h2 class="mt-3 text-lg leading-snug font-semibold break-words">
+      <a href={post.url} target="_blank" rel="noopener noreferrer" class="hover:underline">
+        {post.title}
+        <Icon name="arrowTopRight" class="mb-0.5 inline size-4 text-gray-400" />
+      </a>
+    </h2>
+    <p class="mt-1 truncate text-sm text-gray-500">{hostname(post.url)}</p>
+
+    <div class="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
+      {
+        tool ? (
+          <p>
+            Tool: <span class="font-semibold">{tool.name}</span>{" "}
+            <span class="text-gray-500">
+              · {tool.posts} {tool.posts === 1 ? "post" : "posts"} · {tool.status}
+            </span>
+          </p>
+        ) : (
+          <p class="text-gray-600">No tool assigned. Use Edit to name it.</p>
+        )
+      }
+    </div>
+
+    {
+      rows.length > 0 && (
+        <dl class="mt-4 divide-y divide-gray-100 text-sm">
+          {rows.map(([k, v]) => (
+            <div class="grid grid-cols-3 gap-3 py-2">
+              <dt class="text-gray-500">{k}</dt>
+              <dd class="col-span-2 break-words text-gray-900">{fmt(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      )
+    }
+
+    {
+      raw && (
+        <div class="mt-4">
+          <p class="text-sm font-medium text-red-700">The model's output was invalid{raw.error ? `: ${raw.error}` : ""}</p>
+          <pre class="mt-2 overflow-x-auto rounded-lg bg-gray-900 p-3 text-xs text-gray-100">{raw.raw}</pre>
+        </div>
+      )
+    }
+
+    <details class="group mt-4">
+      <summary class="flex min-h-11 cursor-pointer items-center text-sm font-medium text-brand-700">
+        {text ? `Extracted text (${text.length.toLocaleString()} characters)` : "No extracted text"}
+      </summary>
+      {text && <p class="mt-2 max-h-96 overflow-y-auto text-sm whitespace-pre-wrap text-gray-700">{text.slice(0, 6000)}</p>}
+    </details>
+  </article>
+
+  {
+    queued && (
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        <a href={`/admin/queue/${id}/edit`} class={btnSecondary}>
+          <Icon name="pencil" class="size-5 text-gray-500" /> Edit
+        </a>
+        <a href={`/admin/queue/${id}/reassign`} class={btnSecondary}>
+          <Icon name="arrowsRightLeft" class="size-5 text-gray-500" /> Move
+        </a>
+        <form method="post">
+          <button type="submit" name="action" value="skip" class={`${btnSecondary} w-full`}>
+            <Icon name="forward" class="size-5 text-gray-500" /> Skip
+          </button>
+        </form>
+      </div>
+    )
+  }
+
+  {
+    queued && (
+      <form method="post" class="fixed inset-x-0 bottom-0 z-10 border-t border-gray-200 bg-white/95 backdrop-blur">
+        <div class="mx-auto max-w-2xl px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {c ? (
+            <label class="flex min-h-11 items-center gap-3 text-sm text-gray-700">
+              <input type="checkbox" name="use_in_prompt" class="size-5 rounded border-gray-300 accent-brand-600" />
+              Use as a few-shot example
+            </label>
+          ) : (
+            <p class="flex min-h-11 items-center text-sm text-gray-500">To use this as an example, fill it in with Edit.</p>
+          )}
+          <div class="grid grid-cols-2 gap-3">
+            <button type="submit" name="action" value="reject" class={`${btnReject} min-h-14`}>
+              <Icon name="xMark" /> Reject
+            </button>
+            <button type="submit" name="action" value="approve" class={`${btnApprove} min-h-14`} disabled={!tool}>
+              <Icon name="check" /> Approve
+            </button>
+          </div>
+        </div>
+      </form>
+    )
+  }
+</Admin>

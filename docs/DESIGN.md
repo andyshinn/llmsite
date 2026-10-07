@@ -203,9 +203,11 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 | 0.7–0.9 | Confident items publish; borderline items wait for review |
 | 1 | Everything is reviewed (used for the backfill) |
 
-**Admin pages** sit behind Cloudflare Access, so there is no login code to write.
+**Admin pages** sit behind Cloudflare Access (a self-hosted Access application for the site's `/admin` path), so there is no login code to write. The site still verifies the Access JWT on every `/admin` request and refuses cross-site form posts: if Access is not configured (`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` vars in `apps/site/wrangler.jsonc` missing) or the token is invalid, `/admin` returns 503 or 403 instead of opening up. Workers with static assets do not receive `ctx.access`, which is why the token is checked directly.
 
-- **Queue:** each item shows the title, source, extracted text preview and the model's JSON. Actions are approve, reject, edit fields, or reassign to a different tool.
+**UI stack:** Tailwind CSS v4 with Heroicons and Tailwind's palette, server-rendered `.astro` components. Admin actions are plain HTML forms, so the admin ships no JavaScript. Tailwind Plus Elements (web components) is the choice when an interactive widget is needed; React is not used.
+
+- **Queue:** each item shows the title, source, extracted text preview and the model's JSON. Actions are approve, reject, edit fields, or reassign to a different tool. Edit and reassign are separate full-screen pages rather than dialogs. Edit stores only the changed fields in `review_decisions.corrected_fields` (the model's output stays in `posts.classification`), updates those fields on the tool, re-resolves the tool if its name, repo or homepage changed, then approves (or rejects, if marked out of scope). Reject records `{"is_ai_dev_tool": false}` so a rejection can serve as a few-shot example. Reassign keeps the post queued.
 - **Tools:** edit tool details, merge two tools, split a past merge, hide a tool.
 - **Settings:** threshold, trending weights, category list, pre-filter keywords and model ID.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
@@ -237,9 +239,10 @@ Model prices are approximate, taken from third-party trackers, and should be con
 1. Scaffold the repo: Astro site, ingestion Worker, D1 schema and migrations, CI.
 2. Build the HN and lobste.rs adapters plus classification, then test on a week of data.
 3. Add the GitHub adapter (Reddit dropped; Product Hunt waits for API access).
-4. Run the 90-day backfill with the threshold at 1 and review the queue.
-5. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
-6. Lower the threshold and make the site public.
+4. Build the admin review queue (added: steps 5 and 6 need it).
+5. Run the 90-day backfill with the threshold at 1 and review the queue.
+6. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
+7. Lower the threshold and make the site public.
 
 **Open questions:**
 

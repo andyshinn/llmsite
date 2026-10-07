@@ -3,5 +3,6 @@ export * from "./jobs.ts";
 export * from "./names.ts";
 export * from "./posts.ts";
 export * from "./prefilter.ts";
+export * from "./resolver.ts";
 export * from "./settings.ts";
 export * from "./urls.ts";

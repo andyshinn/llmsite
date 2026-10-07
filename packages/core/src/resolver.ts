@@ -1,12 +1,6 @@
-import {
-  type Classification,
-  githubRepoFromUrl,
-  hostOf,
-  isGenericHost,
-  normalizeToolName,
-  similarity,
-  slugify,
-} from "@radar/core";
+import type { Classification } from "./classification.ts";
+import { normalizeToolName, similarity, slugify } from "./names.ts";
+import { githubRepoFromUrl, hostOf, isGenericHost } from "./urls.ts";
 
 export const FUZZY_MERGE_THRESHOLD = 0.9;
 

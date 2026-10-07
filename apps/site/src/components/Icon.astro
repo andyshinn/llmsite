@@ -1,0 +1,23 @@
+---
+// Heroicons (20px solid), inlined as SVG so no icon font or JS is needed.
+import arrowTopRight from "heroicons/20/solid/arrow-top-right-on-square.svg?raw";
+import arrowsRightLeft from "heroicons/20/solid/arrows-right-left.svg?raw";
+import check from "heroicons/20/solid/check.svg?raw";
+import forward from "heroicons/20/solid/forward.svg?raw";
+import inbox from "heroicons/20/solid/inbox.svg?raw";
+import magnifyingGlass from "heroicons/20/solid/magnifying-glass.svg?raw";
+import pencil from "heroicons/20/solid/pencil-square.svg?raw";
+import xMark from "heroicons/20/solid/x-mark.svg?raw";
+
+const icons = { arrowTopRight, arrowsRightLeft, check, forward, inbox, magnifyingGlass, pencil, xMark };
+export type IconName = keyof typeof icons;
+
+interface Props {
+  name: IconName;
+  class?: string;
+}
+const { name, class: className = "size-5" } = Astro.props;
+const svg = icons[name].replace("<svg", `<svg class="${className}" aria-hidden="true"`);
+---
+
+<Fragment set:html={svg} />

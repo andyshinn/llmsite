@@ -1,0 +1,11 @@
+---
+interface Props {
+  tone?: "error" | "info";
+}
+const { tone = "info" } = Astro.props;
+const styles = tone === "error" ? "bg-red-50 text-red-800 ring-red-200" : "bg-brand-50 text-brand-700 ring-brand-100";
+---
+
+<div role={tone === "error" ? "alert" : "status"} class={`mb-4 rounded-lg px-4 py-3 text-sm ring-1 ring-inset ${styles}`}>
+  <slot />
+</div>

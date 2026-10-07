@@ -1,0 +1,29 @@
+// Shared Tailwind class strings for the admin UI. Tap targets are at least 44px tall.
+export const btn =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-semibold shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50";
+export const btnPrimary = `${btn} bg-brand-600 text-white hover:bg-brand-700 focus-visible:outline-brand-600`;
+export const btnApprove = `${btn} bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:outline-emerald-600`;
+export const btnReject = `${btn} bg-white text-red-700 ring-1 ring-red-300 ring-inset hover:bg-red-50 focus-visible:outline-red-600`;
+export const btnSecondary = `${btn} bg-white text-gray-900 ring-1 ring-gray-300 ring-inset hover:bg-gray-50 focus-visible:outline-gray-600`;
+export const input =
+  "block w-full rounded-lg bg-white px-3 py-2.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-brand-600";
+export const label = "block text-sm font-medium text-gray-900";
+export const card = "rounded-xl bg-white shadow-xs ring-1 ring-gray-200";
+
+export const SOURCE_LABELS: Record<string, string> = { hn: "Hacker News", lobsters: "lobste.rs", github: "GitHub", producthunt: "Product Hunt" };
+
+export function timeAgo(iso: string, now = Date.now()): string {
+  const minutes = Math.round((now - Date.parse(iso)) / 60_000);
+  if (minutes < 60) return `${Math.max(minutes, 1)}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+export function hostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
