@@ -42,5 +42,7 @@ export function safeHref(url: unknown): string | null {
 /** "owner/repo" -> its GitHub URL, or null if it isn't one. */
 export function githubHref(repo: unknown): string | null {
   if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
+  const [owner, name] = repo.split("/");
+  if (owner === "." || owner === ".." || name === "." || name === "..") return null;
   return `https://github.com/${repo}`;
 }
