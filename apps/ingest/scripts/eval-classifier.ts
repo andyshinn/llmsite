@@ -1,6 +1,7 @@
 // Scores the classifier against the hand-labeled set in evals/classifier.
-//   pnpm --filter @radar/ingest eval:classifier -- --model @cf/openai/gpt-oss-120b --reasoning low [--limit 40]
+//   pnpm --filter @radar/ingest eval:classifier -- --model=@cf/zai-org/glm-5.3-flash --reasoning=low [--limit=40]
 // Credentials: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID, or a local `wrangler login`.
+// Calls go through the "radar" AI Gateway, so the daily spend cap applies to evals too.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -18,7 +19,10 @@ const { values: args } = parseArgs({
     reasoning: { type: "string" },
     set: { type: "string", default: "evals/classifier/labeled-2026-10.jsonl" },
     limit: { type: "string" },
-    concurrency: { type: "string", default: "6" },
+    concurrency: { type: "string", default: "4" },
+    // Workers Paid models (GLM, DeepSeek) allow 20 requests/minute; others allow 300.
+    rpm: { type: "string", default: "18" },
+    gateway: { type: "string", default: "radar" },
     out: { type: "string" },
   },
 });
@@ -36,11 +40,23 @@ const token =
 if (!token) throw new Error("Set CLOUDFLARE_API_TOKEN or run `wrangler login`.");
 
 let neurons = 0;
+// Shared pacing across workers: request starts are spaced 60s / rpm apart.
+const gap = 60_000 / Number(args.rpm);
+let nextSlot = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function pace() {
+  const now = Date.now();
+  const wait = Math.max(0, nextSlot - now);
+  nextSlot = Math.max(now, nextSlot) + gap;
+  await sleep(wait);
+}
+
 const ai: RunModel = async (model, input) => {
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/${model}`, {
+    await pace();
+    const res = await fetch(`https://gateway.ai.cloudflare.com/v1/${account}/${args.gateway}/workers-ai/${model}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "cf-aig-skip-cache": "true" },
       body: JSON.stringify(input),
     });
     const body = (await res.json()) as { result?: { usage?: { neurons?: number } }; errors?: unknown };
@@ -48,8 +64,10 @@ const ai: RunModel = async (model, input) => {
       neurons += body.result?.usage?.neurons ?? 0;
       return body.result;
     }
-    if (attempt >= 3 || (res.status !== 429 && res.status < 500)) throw new Error(`${res.status} ${JSON.stringify(body.errors)}`);
-    await new Promise((r) => setTimeout(r, 2000 * attempt));
+    // Rate limits are per minute: wait most of a window before retrying.
+    const retryable = res.status === 429 || res.status >= 500;
+    if (attempt >= 4 || !retryable) throw new Error(`${res.status} ${JSON.stringify(body.errors)}`);
+    await sleep(res.status === 429 ? 30_000 * attempt : 2_000 * attempt);
   }
 };
 
@@ -65,7 +83,9 @@ async function text(item: Item): Promise<string> {
   return t;
 }
 
-type Row = Item & { predicted: boolean | null; category?: string; confidence?: number; reason?: string; error?: string; ms: number };
+// predicted: what production would do. Invalid model output counts as queued (true), as in
+// production; an API failure is null (the post would stay pending and be retried).
+type Row = Item & { predicted: boolean | null; invalid?: boolean; category?: string; confidence?: number; reason?: string; error?: string; ms: number };
 const rows: Row[] = [];
 let next = 0;
 await Promise.all(
@@ -79,9 +99,9 @@ await Promise.all(
           ai,
         );
         const c = r.ok ? r.value : null;
-        // Same routing as production: a tool needs a name or repo, and roundups are dropped.
-        const predicted = c ? c.is_ai_dev_tool && c.post_type !== "roundup" && Boolean(c.tool_name || c.github_repo) : null;
-        rows.push({ ...item, predicted, category: c?.category, confidence: c?.confidence, reason: c?.reason, error: r.ok ? undefined : r.error, ms: Date.now() - t0 });
+        // Same routing as production: a tool needs a name or repo, roundups are dropped, invalid output is queued.
+        const predicted = c ? c.is_ai_dev_tool && c.post_type !== "roundup" && Boolean(c.tool_name || c.github_repo) : true;
+        rows.push({ ...item, predicted, invalid: !r.ok, category: c?.category, confidence: c?.confidence, reason: c?.reason, error: r.ok ? undefined : r.error, ms: Date.now() - t0 });
       } catch (err) {
         rows.push({ ...item, predicted: null, error: String(err), ms: Date.now() - t0 });
       }
@@ -97,7 +117,8 @@ function score(subset: Row[], gold: (r: Row) => boolean) {
   const fp = valid.filter((r) => r.predicted && !gold(r)).length;
   const fn = valid.filter((r) => !r.predicted && gold(r)).length;
   const pct = (n: number, d: number) => (d ? `${Math.round((100 * n) / d)}%` : "n/a");
-  return `precision ${pct(tp, tp + fp)}  recall ${pct(tp, tp + fn)}  (tp ${tp}, fp ${fp}, fn ${fn}, invalid ${subset.length - valid.length})`;
+  const invalid = subset.filter((r) => r.invalid).length;
+  return `precision ${pct(tp, tp + fp)}  recall ${pct(tp, tp + fn)}  (tp ${tp}, fp ${fp}, fn ${fn}, invalid output ${invalid}, API failures ${subset.length - valid.length})`;
 }
 const ms = rows.map((r) => r.ms).sort((a, b) => a - b);
 const cost = neurons * NEURON_USD;
@@ -106,9 +127,9 @@ console.log(`all          ${score(rows, (r) => r.in_scope)}`);
 console.log(`strict MCP   ${score(rows, (r) => r.in_scope && !r.mcp_only)}`);
 for (const src of [...new Set(rows.map((r) => r.source))]) console.log(`${src.padEnd(12)} ${score(rows.filter((r) => r.source === src), (r) => r.in_scope)}`);
 console.log(`cost         $${cost.toFixed(4)} for ${rows.length} posts (~$${((cost * 300) / rows.length).toFixed(2)}/day at 300 posts)`);
-console.log(`latency      median ${ms[Math.floor(ms.length / 2)]}ms, p90 ${ms[Math.floor(ms.length * 0.9)]}ms`);
+console.log(`latency      (incl. pacing) median ${ms[Math.floor(ms.length / 2)]}ms, p90 ${ms[Math.floor(ms.length * 0.9)]}ms`);
 const wrong = rows.filter((r) => r.predicted !== null && r.predicted !== r.in_scope);
 console.log(`\nmisclassified (${wrong.length}):`);
 for (const r of wrong) console.log(`  ${r.predicted ? "FP" : "FN"} [${r.source}] ${r.title.slice(0, 90)}`);
-for (const r of rows.filter((r) => r.error)) console.log(`  ERR [${r.source}] ${r.title.slice(0, 60)}: ${r.error!.slice(0, 120)}`);
+for (const r of rows.filter((r) => r.error)) console.log(`  ${r.invalid ? "INVALID" : "ERR"} [${r.source}] ${r.title.slice(0, 60)}: ${r.error!.slice(0, 120)}`);
 if (args.out) writeFileSync(args.out, JSON.stringify(rows, null, 1));

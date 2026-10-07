@@ -13,6 +13,9 @@ Labeling rules:
 - Out of scope: news, essays and benchmarks; models; SDKs/frameworks for building
   LLM apps or general agents; AI products for non-coding work; agent skills for
   non-coding work (video, marketing).
+- MCP servers: in scope when the product is mainly an MCP server. A product
+  built for something else that also ships an MCP interface (an error tracker,
+  a video editor, a Sonos controller) is labeled by its main purpose.
 - `mcp_only`: in scope only because every MCP server counts (decided Oct 2026;
   they go in the `mcp-general` category). The "all" score is the one that
   matters; "strict MCP" shows how the model treats non-coding MCP servers.

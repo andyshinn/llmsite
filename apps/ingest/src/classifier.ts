@@ -35,7 +35,7 @@ Decide whether the post is mainly about ONE specific product or project that is 
 2. The tool is for software developers, and its job is writing, reviewing, testing, debugging, running, deploying or managing code.
 3. It uses AI to do that job, or it is built specifically to work with AI coding agents: a plugin, skill, hook or extension for Claude Code, Codex, Cursor or similar; or a monitor, orchestrator or session manager for coding agents.
 
-Exception: a post about one specific MCP (Model Context Protocol) server is always in scope, whatever the server is for. Use category "mcp-dev" when it helps with software development and "mcp-general" otherwise.
+Exception: a post about one specific MCP (Model Context Protocol) server is always in scope, whatever the server is for. Use category "mcp-dev" when it helps with software development and "mcp-general" otherwise. This covers products that are mainly an MCP server. A product built for something else that also offers an MCP interface (an error tracker, a video editor, a smart-home controller) is judged by what it is mainly for.
 
 These are NOT AI coding tools (is_ai_dev_tool = false):
 - models, inference engines, training or evaluation projects, benchmarks
