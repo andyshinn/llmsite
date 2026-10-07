@@ -53,7 +53,8 @@ export async function runFetchJob(job: FetchJob, deps: Deps, now = Date.now()): 
   try {
     const keywords = await getSetting(deps.db, "prefilter_keywords");
     const today = iso(now).slice(0, 10);
-    for await (const page of adapter.fetchPosts({ since, until }, deps.fetch)) {
+    const ctx = { fetch: deps.fetch, db: deps.db, githubToken: deps.githubToken, sleep: deps.sleep };
+    for await (const page of adapter.fetchPosts({ since, until, mode: job.mode }, ctx)) {
       fetched += page.length;
       const passed = page.filter((p) => prefilterScore(p, keywords) > 0);
       kept += passed.length;

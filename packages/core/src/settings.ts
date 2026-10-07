@@ -14,6 +14,9 @@ export const settingSchemas = {
   prefilter_keywords: z.array(z.string().min(1)),
   model_id: z.string().min(1),
   max_fewshot: z.number().int().min(0),
+  // GitHub adapter: repos with any of these topics and at least this many stars.
+  github_topics: z.array(z.string().min(1)).min(1),
+  github_min_stars: z.number().int().min(0),
 } as const;
 
 export type SettingKey = keyof typeof settingSchemas;

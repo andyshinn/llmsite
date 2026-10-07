@@ -4,7 +4,7 @@ Read `docs/DESIGN.md` before starting any task. It is the source of truth for sc
 
 ## What this is
 
-A public site that discovers new AI coding tools daily (HN, lobste.rs, Reddit, GitHub, Product Hunt), classifies them with Workers AI, groups posts into tool pages, and ranks tools by a trending score.
+A public site that discovers new AI coding tools daily (HN, lobste.rs, GitHub; Product Hunt once API access is granted), classifies them with Workers AI, groups posts into tool pages, and ranks tools by a trending score.
 
 ## Stack
 

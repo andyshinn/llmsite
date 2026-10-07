@@ -37,7 +37,7 @@ The system is two Workers that share one D1 database. An ingestion Worker writes
 
 ```mermaid
 flowchart TD
-    cron["Cron Trigger<br/>daily, one job per source"] --> ingest["Ingest Worker<br/>5 adapters, dedupe by URL"]
+    cron["Cron Trigger<br/>daily, one job per source"] --> ingest["Ingest Worker<br/>source adapters, dedupe by URL"]
     ingest --> queue["Classify queue<br/>one message per post"]
     queue --> classifier["Classifier<br/>pre-filter, fetch text<br/>Workers AI, 70B model"]
     classifier --> resolver["Tool resolver<br/>aliases and auto-merge<br/>threshold: publish or queue"]
@@ -59,9 +59,8 @@ Each source is a small adapter that returns normalized posts. A daily Cron Trigg
 | --- | --- | --- | --- |
 | Hacker News | Algolia API, filtered by date | Points, comments, Show HN tag | Full |
 | lobste.rs | `/newest/page/N.json`, paginated | Score, comments, tags such as `ai` and `vibecoding` | Full |
-| Reddit | OAuth API, subreddit listings | Upvotes, comments, flair | Partial: listings stop at about 1,000 posts |
-| GitHub | Search API for repos created recently with topics such as `mcp` or `ai-agent`; Trending page scraped | Stars, language, license, topics | Search only; Trending has no history |
-| Product Hunt | GraphQL API with token | Votes, comments, topics | Full via date filter |
+| GitHub | Search API for repos with topics such as `mcp` or `ai-agent` (`github_topics`) and at least `github_min_stars` stars; daily runs cover repos created in the last 7 days. Trending page scraped | Stars, topics | Search only; Trending has no history |
+| Product Hunt | GraphQL API, OAuth client credentials | Votes, comments, topics | Full via date filter. **Disabled:** no adapter until API access is granted |
 
 Every adapter emits the same shape: source, external ID, URL, title, author, posted time, score and comment count. Dedupe happens before classification, using the canonical URL. A GitHub URL is reduced to `owner/repo`. A post whose exact URL was already classified reuses that result instead of calling the model; the canonical URL alone is not enough, because a release link and a launch post can share `owner/repo` but need their own type and version.
 
@@ -69,7 +68,11 @@ Every adapter emits the same shape: source, external ID, URL, title, author, pos
 
 **Backfill:** a one-off job runs the same adapters over 90-day date windows, pushing into the same queue. Sources whose API filters by date (Hacker News) split the backfill into one fetch job per day; lobste.rs pages back through `/newest` in a single job. All backfilled items go to the review queue (threshold set to 1) so classifier quality can be checked before anything is public.
 
-**Product Hunt terms:** the API terms restrict commercial use. Confirm a public site is allowed before relying on it.
+**Product Hunt terms:** the API must not be used commercially without permission. The site has no ads, paid features or data resale, so it is treated as non-commercial, with the attribution link Product Hunt asks for. Revisit if that changes.
+
+**Reddit:** dropped. Since November 2025 every new Reddit API app needs manual approval under the Responsible Builder Policy, and HN, lobste.rs and GitHub already cover most launches.
+
+**GitHub traction floor:** an exception to "no minimum traction". About 2,000 repos with the tracked topics are created each day, mostly empty or abandoned; at 10 stars it is about 22 a day (measured Oct 2026). The floor is the `github_min_stars` setting.
 
 ## Extraction and classification
 
@@ -165,7 +168,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 
 **Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue.
 
-**Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id` and `max_fewshot`.
+**Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id`, `max_fewshot`, `github_topics` and `github_min_stars`.
 
 **Search:** a D1 FTS5 virtual table indexes tool name, description and tags. It is kept in sync with triggers on `tools`.
 
@@ -222,7 +225,7 @@ Expected daily cost is under $1, inside the $1–2 target, assuming about 300 po
 
 Model prices are approximate, taken from third-party trackers, and should be confirmed on Cloudflare's model pages. The 90-day backfill is a one-off cost of roughly 90 days of classification, so on the order of $40–60. If that is too much, it can run on a smaller model and only the borderline items be re-checked with the 70B model.
 
-**Deploy:** GitHub Actions on GitHub-hosted runners with `cloudflare/wrangler-action`. On push to `main`, it runs type checks and tests, applies D1 migrations, then deploys. The API token and Reddit, GitHub and Product Hunt credentials are kept in repo secrets and Worker secrets.
+**Deploy:** GitHub Actions on GitHub-hosted runners with `cloudflare/wrangler-action`. On push to `main`, it runs type checks and tests, applies D1 migrations, then deploys. The API token and GitHub (and later Product Hunt) credentials are kept in repo secrets and Worker secrets.
 
 **Cost cap:** every Workers AI call goes through an AI Gateway (`radar`) with a daily spend limit, defined in `infra/ai-gateway.json` and applied by `deploy.yml`. When the limit is reached the gateway rejects AI calls; those posts stay `pending` and the next daily run re-enqueues them, so a large backfill spreads over several days instead of running up the bill. A Cloudflare budget alert (Billing > Billable Usage) emails when the month's usage-based spend crosses a set amount.
 
@@ -232,7 +235,7 @@ Model prices are approximate, taken from third-party trackers, and should be con
 
 1. Scaffold the repo: Astro site, ingestion Worker, D1 schema and migrations, CI.
 2. Build the HN and lobste.rs adapters plus classification, then test on a week of data.
-3. Add Reddit, GitHub and Product Hunt adapters.
+3. Add the GitHub adapter (Reddit dropped; Product Hunt waits for API access).
 4. Run the 90-day backfill with the threshold at 1 and review the queue.
 5. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
 6. Lower the threshold and make the site public.
@@ -240,9 +243,8 @@ Model prices are approximate, taken from third-party trackers, and should be con
 **Open questions:**
 
 - Site name and domain.
-- Which subreddits to watch beyond r/LocalLLaMA and r/ChatGPTCoding.
 - The starting category list beyond agent, IDE, CLI and MCP server.
-- Whether Product Hunt's API terms allow use on a public site.
+- When Product Hunt API access is granted, add its adapter.
 - Backfill model: the 70B model throughout, or a smaller model with 70B re-checks.
 
 ## Phone-only workflow
@@ -256,7 +258,7 @@ All development and operations happen from a phone, so nothing may require a loc
 | `deploy.yml` | Push to `main` | Applies D1 migrations, then deploys both Workers |
 | `ops.yml` | Manual, with inputs | Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, or trigger one source now |
 
-**Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, GitHub repo secrets, and the Reddit OAuth app. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.
+**Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, and GitHub repo secrets. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.
 
 **Debugging:** Workers Logs is enabled through `observability` in the Wrangler config, so logs are searchable in the Cloudflare dashboard. The admin status panel adds a "run now" button per source, and each queue item shows its raw extracted text and model output. The D1 console in the dashboard covers ad hoc queries.
 

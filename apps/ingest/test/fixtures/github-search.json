@@ -1,0 +1,90 @@
+{
+  "total_count": 38,
+  "incomplete_results": false,
+  "items": [
+    {
+      "id": 1397016507,
+      "full_name": "rehan-remade/universal-modder",
+      "html_url": "https://github.com/rehan-remade/universal-modder",
+      "description": "Point Claude at any game. Skills, tools and the fal MCP that let Claude Code mod almost any PC game you own: recon, reverse engineering, fal-generated art/3D/audio, in-game testing, showcase videos.",
+      "created_at": "2026-09-30T05:00:35Z",
+      "stargazers_count": 4628,
+      "topics": [
+        "age-of-empires",
+        "claude-code",
+        "claude-code-plugin",
+        "fal",
+        "game-assets",
+        "game-modding",
+        "mcp",
+        "modding",
+        "reverse-engineering",
+        "tmodloader"
+      ],
+      "fork": false,
+      "archived": false,
+      "owner": {
+        "login": "rehan-remade"
+      }
+    },
+    {
+      "id": 1396688303,
+      "full_name": "feder-cr/dots",
+      "html_url": "https://github.com/feder-cr/dots",
+      "description": "Open-source dots for the web: an AI agent with its own browser, one that does not get blocked.",
+      "created_at": "2026-09-29T23:06:00Z",
+      "stargazers_count": 2635,
+      "topics": [
+        "ai-agent",
+        "ai-agents",
+        "ai-browser",
+        "anti-detect-browser",
+        "browser-agent",
+        "browser-automation",
+        "chatgpt",
+        "dotfiles",
+        "dots",
+        "firefox",
+        "llm-agent",
+        "mcp",
+        "open-source-alternative",
+        "openai",
+        "openai-dots",
+        "openrouter",
+        "playwright",
+        "stealth-browser",
+        "web-agent",
+        "web-automation"
+      ],
+      "fork": false,
+      "archived": false,
+      "owner": {
+        "login": "feder-cr"
+      }
+    },
+    {
+      "id": 1395994653,
+      "full_name": "shader-effects-inc/shaders",
+      "html_url": "https://github.com/shader-effects-inc/shaders",
+      "description": "WebGPU components for React, Vue, Svelte, Solid, JS & Framer",
+      "created_at": "2026-09-29T16:36:26Z",
+      "stargazers_count": 1297,
+      "topics": [
+        "cli",
+        "javascript",
+        "mcp",
+        "react",
+        "shaders",
+        "solid",
+        "svelte",
+        "vue",
+        "webgpu-shaders"
+      ],
+      "fork": false,
+      "archived": false,
+      "owner": {
+        "login": "shader-effects-inc"
+      }
+    }
+  ]
+}

@@ -33,7 +33,7 @@ on:
       source:
         description: "backfill / trigger-source: which source"
         type: choice
-        options: [all, hn, lobsters, reddit, github, producthunt]
+        options: [all, hn, lobsters, github]
         default: all
       days:
         description: "backfill: how many days back"
@@ -51,7 +51,7 @@ env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
   FETCH_QUEUE: radar-fetch
-  SOURCES: hn lobsters reddit github producthunt
+  SOURCES: hn lobsters github
 
 jobs:
   ops:

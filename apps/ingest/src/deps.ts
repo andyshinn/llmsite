@@ -11,6 +11,7 @@ export interface Deps {
   classifyQueue: Queue;
   ai: RunModel;
   fetch: Fetcher;
+  sleep: (ms: number) => Promise<void>;
   githubToken?: string;
 }
 
@@ -24,6 +25,7 @@ export function depsFromEnv(env: Env): Deps {
     ai: (model, input) =>
       env.AI.run(model as Parameters<Ai["run"]>[0], input as never, { gateway: { id: env.AI_GATEWAY_ID, skipCache: true } }),
     fetch: (input, init) => fetch(input, init),
+    sleep: (ms) => scheduler.wait(ms),
     // Optional Worker secret; README fetches fall back to raw.githubusercontent.com without it.
     githubToken: (env as { GH_API_TOKEN?: string }).GH_API_TOKEN,
   };

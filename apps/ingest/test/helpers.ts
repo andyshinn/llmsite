@@ -49,6 +49,7 @@ export function makeDeps(over: Partial<Deps> = {}): Deps & { fetchSent: unknown[
       throw new Error("unexpected AI call");
     },
     fetch: fakeFetch(),
+    sleep: async () => {},
     ...over,
     fetchSent: fetchQ.sent,
     classifySent: classifyQ.sent,
