@@ -27,3 +27,22 @@ export function hostname(url: string): string {
     return url;
   }
 }
+
+/** An http(s) URL safe to use as a link, or null (never javascript: or data: URLs). */
+export function safeHref(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "owner/repo" -> its GitHub URL, or null if it isn't one. */
+export function githubHref(repo: unknown): string | null {
+  if (typeof repo !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
+  const [owner, name] = repo.split("/");
+  if (owner === "." || owner === ".." || name === "." || name === "..") return null;
+  return `https://github.com/${repo}`;
+}
