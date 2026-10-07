@@ -42,7 +42,7 @@ const STALE_AFTER = 3 * 86_400_000;
 export const lobsters: Adapter = {
   source: "lobsters",
   windowed: false,
-  async *fetchPosts({ since, until }, fetcher) {
+  async *fetchPosts({ since, until }, { fetch: fetcher }) {
     for (let page = 1; page <= MAX_PAGES; page++) {
       const stories = z.array(storySchema).parse(await getJson(fetcher, newestPageUrl(page)));
       if (stories.length === 0) return;

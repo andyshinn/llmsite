@@ -36,6 +36,7 @@ it("enqueues one daily fetch job per source and re-queues stale pending posts", 
   expect(fetchQ.sent).toEqual([
     { kind: "fetch", source: "hn", mode: "daily", until: "2026-10-06T06:00:00.000Z" },
     { kind: "fetch", source: "lobsters", mode: "daily", until: "2026-10-06T06:00:00.000Z" },
+    { kind: "fetch", source: "github", mode: "daily", until: "2026-10-06T06:00:00.000Z" },
   ]);
   expect(classifyQ.sent).toEqual([{ kind: "classify", post_id: stale!.id }]);
 });

@@ -40,7 +40,7 @@ function toPost(hit: z.infer<typeof hitSchema>): NormalizedPost | null {
 export const hn: Adapter = {
   source: "hn",
   windowed: true,
-  async *fetchPosts({ since, until }, fetcher) {
+  async *fetchPosts({ since, until }, { fetch: fetcher }) {
     const lower = Math.floor(since / 1000);
     let upper = Math.floor(until / 1000);
     while (upper > lower) {

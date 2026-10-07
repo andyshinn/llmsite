@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const SOURCES = ["hn", "lobsters", "reddit", "github", "producthunt"] as const;
+// Reddit was dropped (new API apps need manual approval). Product Hunt has no adapter until API access is granted.
+export const SOURCES = ["hn", "lobsters", "github", "producthunt"] as const;
 export const sourceSchema = z.enum(SOURCES);
 export type Source = z.infer<typeof sourceSchema>;
 
