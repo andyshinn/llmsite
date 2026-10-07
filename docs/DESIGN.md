@@ -6,7 +6,7 @@ As of Oct 3, 2026
 
 A public website that discovers new AI coding tools daily from developer communities and ranks them by what is trending. It runs entirely on Cloudflare, with a target cost of $1–2 per day. "AI Coding Tools Radar" is a working title.
 
-**In scope:** developer tools that use AI to help write, run or manage code. This means coding agents, AI IDEs and editor extensions, CLIs, and MCP servers. Both open-source and closed-source tools are included; closed-source tools are flagged as such.
+**In scope:** developer tools that use AI to help write, run or manage code. This means coding agents, AI IDEs and editor extensions, CLIs, and tools built for AI coding-agent workflows (plugins, skills, hooks, monitors, orchestrators). Every MCP server is in scope too, whatever it is for, in its own category: `mcp-dev` when it helps with software development, `mcp-general` otherwise. Both open-source and closed-source tools are included; closed-source tools are flagged as such.
 
 **Out of scope:**
 
@@ -39,7 +39,7 @@ The system is two Workers that share one D1 database. An ingestion Worker writes
 flowchart TD
     cron["Cron Trigger<br/>daily, one job per source"] --> ingest["Ingest Worker<br/>source adapters, dedupe by URL"]
     ingest --> queue["Classify queue<br/>one message per post"]
-    queue --> classifier["Classifier<br/>pre-filter, fetch text<br/>Workers AI, 70B model"]
+    queue --> classifier["Classifier<br/>fetch text<br/>Workers AI (model from settings)"]
     classifier --> resolver["Tool resolver<br/>aliases and auto-merge<br/>threshold: publish or queue"]
     classifier -- cache text --> r2[("R2<br/>extracted article text")]
     resolver -- published or queued --> d1[("D1 database<br/>tools, posts, snapshots, settings")]
@@ -80,7 +80,7 @@ Every new post passes through three stages. The pre-filter runs inside the fetch
 
 1. **Pre-filter (no AI).** Score the title, URL and domain against a keyword list (`llm`, `agent`, `mcp`, `copilot`, `claude`, `cursor`, `codegen` and so on). GitHub links, Show HN and lobste.rs `ai` or `vibecoding` tags add points. Posts scoring zero are not stored; the fetch job logs how many it dropped. The keyword list lives in settings. A bare `ai` keyword is deliberately left out: on a week of HN it let through about 125 extra posts a day, almost all general AI news.
 2. **Content fetch.** For GitHub links, fetch the README through the API. Otherwise fetch the page and extract the main text with Mozilla Readability and `linkedom`. JS-heavy pages are meant to fall back to Browser Rendering; that fallback is not built yet, so such pages are classified mostly from their title until the review queue shows it is needed. Text is truncated to about 3,000 tokens and cached in R2 so posts can be reclassified later without re-fetching.
-3. **LLM classification.** One Workers AI call per post, using a 70B-class instruct model such as Llama 3.3 70B. The prompt contains the scope definition, the fixed category list as an enum, and the curated few-shot examples (capped at 20).
+3. **LLM classification.** One Workers AI call per post. The model is the `model_id` setting (GLM 5.3 Flash since Oct 2026, with `model_reasoning_effort` = `low`), chosen by scoring candidates against a hand-labeled set in `evals/classifier`: 85% precision against 39% for Llama 3.3 70B on the first prompt, at under half the cost. The prompt contains a scope checklist, the fixed category list as an enum, and the curated few-shot examples (capped at 20). The model writes a one-line `reason` first, which reviewers see. GLM is a Workers Paid model limited to 20 requests per minute, so the classify consumer handles one post at a time.
 
 The model must return JSON in this shape:
 
@@ -92,7 +92,7 @@ The model must return JSON in this shape:
   "homepage_url": "string | null",
   "github_repo": "owner/repo | null",
   "version": "string | null",
-  "category": "agent | ide | cli | mcp-server | other",
+  "category": "agent | ide | cli | mcp-dev | mcp-general | other",
   "tags": ["string"],
   "is_open_source": true,
   "description": "one line, under 140 characters",
@@ -169,7 +169,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 
 **Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue.
 
-**Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id`, `max_fewshot`, `github_topics` and `github_min_stars`.
+**Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id`, `model_reasoning_effort`, `max_fewshot`, `github_topics` and `github_min_stars`.
 
 **Search:** a D1 FTS5 virtual table indexes tool name, description and tags. It is kept in sync with triggers on `tools`.
 
@@ -221,12 +221,11 @@ Expected daily cost is under $1, inside the $1–2 target, assuming about 300 po
 
 | Item | Assumption | Approx. cost per day |
 | --- | --- | --- |
-| Classification input | 300 posts × 6,000 tokens (text plus prompt and few-shot examples) at about $0.29 per million | $0.53 |
-| Classification output | 300 × 200 tokens at about $2.25 per million | $0.14 |
+| Classification | 300 posts with GLM 5.3 Flash, measured on the eval set (about 2,200 input tokens per post plus low-effort reasoning) | $0.12 |
 | Workers, Queues, D1, R2 | Workers Paid plan, $5 per month, usage well within its allowances | $0.17 |
-| **Total** | | **about $0.84** |
+| **Total** | | **about $0.29** |
 
-Model prices are approximate, taken from third-party trackers, and should be confirmed on Cloudflare's model pages. The 90-day backfill is a one-off cost of roughly 90 days of classification, so on the order of $40–60. If that is too much, it can run on a smaller model and only the borderline items be re-checked with the 70B model.
+Model prices are approximate, taken from third-party trackers, and should be confirmed on Cloudflare's model pages. The 90-day backfill is a one-off cost of roughly 90 days of classification, about $12 with GLM 5.3 Flash. The AI Gateway's daily cap and the model's 20 requests per minute spread it over several days.
 
 **Deploy:** GitHub Actions on GitHub-hosted runners with `cloudflare/wrangler-action`. On push to `main`, it runs type checks and tests, applies D1 migrations, then deploys. The API token and GitHub (and later Product Hunt) credentials are kept in repo secrets and Worker secrets.
 
@@ -247,9 +246,7 @@ Model prices are approximate, taken from third-party trackers, and should be con
 **Open questions:**
 
 - Site name and domain.
-- The starting category list beyond agent, IDE, CLI and MCP server.
 - When Product Hunt API access is granted, add its adapter.
-- Backfill model: the 70B model throughout, or a smaller model with 70B re-checks.
 
 ## Phone-only workflow
 
@@ -260,7 +257,7 @@ All development and operations happen from a phone, so nothing may require a loc
 | `bootstrap.yml` | Manual, run once | Creates the D1 database, R2 bucket and queues with Wrangler, then commits their IDs into `wrangler.jsonc` |
 | `ci.yml` | Pull request | Type checks, unit tests, migration dry run |
 | `deploy.yml` | Push to `main` | Applies D1 migrations, then deploys both Workers |
-| `ops.yml` | Manual, with inputs | Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, or trigger one source now |
+| `ops.yml` | Manual, with inputs | Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, trigger one source now, or re-classify unreviewed queued posts after a classifier change |
 
 **Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, and GitHub repo secrets. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.
 

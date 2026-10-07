@@ -13,8 +13,9 @@ Labeling rules:
 - Out of scope: news, essays and benchmarks; models; SDKs/frameworks for building
   LLM apps or general agents; AI products for non-coding work; agent skills for
   non-coding work (video, marketing).
-- `mcp_only`: in scope only because any MCP server counts. Scores are reported
-  both ways while that rule is an open question.
+- `mcp_only`: in scope only because every MCP server counts (decided Oct 2026;
+  they go in the `mcp-general` category). The "all" score is the one that
+  matters; "strict MCP" shows how the model treats non-coding MCP servers.
 
 Run `pnpm --filter @radar/ingest eval:classifier -- --model <id> [--reasoning low]`
 (see `apps/ingest/scripts/eval-classifier.ts`). It needs a Cloudflare credential
