@@ -10,7 +10,11 @@ export const settingSchemas = {
     w_g: z.number(),
     g: z.number(),
   }),
-  categories: z.array(z.string().min(1)).min(1),
+  categories: z
+    .array(z.string().regex(/^[a-z0-9-]+$/, "lowercase letters, digits and hyphens"))
+    .min(1)
+    .refine((c) => c.includes("other"), { message: 'must include "other"' })
+    .refine((c) => new Set(c).size === c.length, { message: "no duplicates" }),
   prefilter_keywords: z.array(z.string().min(1)),
   model_id: z.string().min(1),
   // For reasoning models, e.g. "low"; "" sends no reasoning_effort.

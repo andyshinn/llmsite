@@ -1,5 +1,5 @@
 import { type Classification, type ClassifyJob, classificationSchema, getSetting, resolveTool } from "@radar/core";
-import { type FewShotExample, classifyPost } from "./classifier.ts";
+import { type FewShotExample, classifierFingerprint, classifyPost } from "./classifier.ts";
 import { getArticleText } from "./content.ts";
 import type { Deps } from "./deps.ts";
 
@@ -43,16 +43,17 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   // Dedupe: the same link was already classified (e.g. cross-posted to HN and lobste.rs).
   // Requires the exact URL, not just the canonical one: a GitHub release link shares
   // its canonical owner/repo URL with the launch post but needs its own type and version.
-  // Only reuses a result from the current model, so changing model_id (or re-queueing
-  // posts after a change) always gets a fresh classification.
-  if (!classification) {
+  // Only reuses a result from the same classifier setup (model, reasoning, prompt and
+  // categories), and never for forced jobs (re-classify), which always call the model.
+  const classifier = await classifierFingerprint(model, reasoningEffort, categories);
+  if (!classification && !job.force) {
     const twin = await db
       .prepare(
         `SELECT classification FROM posts
-         WHERE canonical_url = ? AND url = ? AND id != ? AND json_extract(classification, '$.model') = ?
+         WHERE canonical_url = ? AND url = ? AND id != ? AND json_extract(classification, '$.classifier') = ?
          ORDER BY id LIMIT 1`,
       )
-      .bind(post.canonical_url, post.url, post.id, model)
+      .bind(post.canonical_url, post.url, post.id, classifier)
       .first<{ classification: string }>();
     classification = parseStored(twin?.classification ?? null);
     via = "duplicate_url";
@@ -70,7 +71,7 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
       console.warn(JSON.stringify({ event: "classify_invalid", post_id: post.id, error: result.error }));
       return;
     }
-    classification = { ...result.value, model };
+    classification = { ...result.value, model, classifier };
     via = "model";
     await db
       .prepare("UPDATE posts SET classification = ?, confidence = ?, post_type = ?, version = ? WHERE id = ?")
@@ -148,7 +149,7 @@ export async function loadFewShot(db: D1Database, limit: number, categories: rea
     };
     const parsed = schema.safeParse(merged);
     if (!parsed.success) continue;
-    const { model: _, ...output } = parsed.data; // bookkeeping, not part of the answer
+    const { model: _m, classifier: _c, ...output } = parsed.data; // bookkeeping, not part of the answer
     examples.push({ post: { source: r.source, title: r.title, url: r.url }, output });
     if (examples.length === limit) break;
   }

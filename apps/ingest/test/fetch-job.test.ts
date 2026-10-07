@@ -30,8 +30,8 @@ describe("runFetchJob", () => {
     const snapshots = await env.DB.prepare("SELECT count(*) AS n FROM post_snapshots WHERE date = '2026-10-06'").first<{ n: number }>();
     expect(snapshots!.n).toBe(posts.length);
 
-    const run = await env.DB.prepare("SELECT source, items_fetched, error, finished_at FROM source_runs").first<Record<string, unknown>>();
-    expect(run).toMatchObject({ source: "hn", items_fetched: hnSearch.hits.length, error: null });
+    const run = await env.DB.prepare("SELECT source, mode, items_fetched, error, finished_at FROM source_runs").first<Record<string, unknown>>();
+    expect(run).toMatchObject({ source: "hn", mode: "daily", items_fetched: hnSearch.hits.length, error: null });
     expect(run!.finished_at).not.toBeNull();
   });
 

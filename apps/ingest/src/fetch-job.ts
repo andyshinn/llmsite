@@ -36,8 +36,8 @@ export async function runFetchJob(job: FetchJob, deps: Deps, now = Date.now()): 
   }
 
   const run = await deps.db
-    .prepare("INSERT INTO source_runs (source) VALUES (?) RETURNING id")
-    .bind(job.source)
+    .prepare("INSERT INTO source_runs (source, mode) VALUES (?, ?) RETURNING id")
+    .bind(job.source, job.mode)
     .first<{ id: number }>();
   const finish = (fetched: number, error: string | null) =>
     deps.db

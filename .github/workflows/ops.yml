@@ -139,28 +139,11 @@ jobs:
         if: inputs.action == 'reclassify-queued'
         working-directory: apps/ingest
         run: |
-          cat > reclassify.sql <<'SQL'
-          UPDATE posts
-          SET status = 'pending', classification = NULL, confidence = NULL, raw_output = NULL,
-              tool_id = NULL, post_type = NULL, version = NULL
-          WHERE status = 'queued' AND id NOT IN (SELECT post_id FROM review_decisions);
-          -- Tools those posts created that nothing else uses (never published, no other posts, merges or reports).
-          DELETE FROM tool_aliases WHERE tool_id IN (
-            SELECT t.id FROM tools t WHERE t.status = 'queued'
-              AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = t.id)
-              AND NOT EXISTS (SELECT 1 FROM tool_merges m WHERE m.from_tool_id = t.id OR m.into_tool_id = t.id)
-              AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.tool_id = t.id)
-              AND NOT EXISTS (SELECT 1 FROM repo_snapshots s WHERE s.tool_id = t.id));
-          DELETE FROM tools WHERE id IN (
-            SELECT t.id FROM tools t WHERE t.status = 'queued'
-              AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = t.id)
-              AND NOT EXISTS (SELECT 1 FROM tool_merges m WHERE m.from_tool_id = t.id OR m.into_tool_id = t.id)
-              AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.tool_id = t.id)
-              AND NOT EXISTS (SELECT 1 FROM repo_snapshots s WHERE s.tool_id = t.id));
-          SQL
+          # Same statements the admin status panel runs (packages/core/src/ops.ts).
+          node --input-type=module -e 'import { RESET_UNREVIEWED_QUEUED_SQL } from "@radar/core"; console.log(RESET_UNREVIEWED_QUEUED_SQL.join(";\n") + ";")' > reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --file reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --json --command "SELECT id FROM posts WHERE status = 'pending'" \
-            | jq -c '[.[0].results[].id | {body: {kind: "classify", post_id: .}, content_type: "json"}]' > jobs.json
+            | jq -c '[.[0].results[].id | {body: {kind: "classify", post_id: ., force: true}, content_type: "json"}]' > jobs.json
           total=$(jq length jobs.json)
 
           api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"

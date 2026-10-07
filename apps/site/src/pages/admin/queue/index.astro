@@ -10,7 +10,7 @@ const next = await nextQueuedId(env.DB, after);
 if (next !== null) return Astro.redirect(`/admin/queue/${next}`, 302);
 ---
 
-<Admin title="Review queue">
+<Admin title="Review queue" section="queue">
   <div class="mt-16 text-center">
     <Icon name="check" class="mx-auto size-12 text-emerald-600" />
     <h1 class="mt-4 text-xl font-semibold">Queue is empty</h1>

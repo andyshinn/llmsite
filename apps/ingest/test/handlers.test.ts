@@ -73,3 +73,9 @@ it("retries a message whose job throws", async () => {
   const result = await getQueueResult(batch, ctx);
   expect(result.retryMessages.map((m: { msgId: string }) => m.msgId)).toEqual(["boom"]);
 });
+
+it("ENABLED_SOURCES in core matches the ingest adapters", async () => {
+  const { ENABLED_SOURCES } = await import("@radar/core");
+  const { ADAPTERS } = await import("../src/sources/index.ts");
+  expect([...ENABLED_SOURCES].sort()).toEqual(Object.keys(ADAPTERS).sort());
+});

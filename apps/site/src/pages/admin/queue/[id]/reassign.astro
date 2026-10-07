@@ -28,7 +28,7 @@ const q = (Astro.url.searchParams.get("q") ?? item.tool?.name ?? "").trim();
 const results = q ? (await searchTools(env.DB, q)).filter((t) => t.id !== item.tool?.id) : [];
 ---
 
-<Admin title="Move to another tool">
+<Admin title="Move to another tool" section="queue">
   <a href={`/admin/queue/${id}`} class="text-sm font-medium text-brand-700">← Back to post</a>
   <h1 class="mt-2 text-lg font-semibold">Move to another tool</h1>
   <p class="mt-1 text-sm text-gray-600">
