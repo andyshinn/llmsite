@@ -257,6 +257,7 @@ All development and operations happen from a phone, so nothing may require a loc
 | `bootstrap.yml` | Manual, run once | Creates the D1 database, R2 bucket and queues with Wrangler, then commits their IDs into `wrangler.jsonc` |
 | `ci.yml` | Pull request | Type checks, unit tests, migration dry run |
 | `deploy.yml` | Push to `main` | Applies D1 migrations, then deploys both Workers |
+| `eval.yml` | Manual, with inputs | Scores a classifier model and the current prompt against the hand-labeled set in `evals/classifier` (through the AI Gateway, so the spend cap applies) |
 | `ops.yml` | Manual, with inputs | Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, trigger one source now, or re-classify unreviewed queued posts after a classifier change |
 
 **Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, and GitHub repo secrets. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.
