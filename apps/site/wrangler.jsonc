@@ -9,6 +9,13 @@
   "observability": { "enabled": true },
   "assets": { "directory": "./dist", "binding": "ASSETS" },
 
+  // Cloudflare Access application guarding /admin (not secret: the middleware
+  // verifies each request's Access JWT signature against the team's public keys).
+  "vars": {
+    "ACCESS_AUD": "4c6876fe1d52a71edf75ed851d0cddd7ead9384fb34b297082363df1f61c1b06",
+    "ACCESS_TEAM_DOMAIN": "andyshinn.cloudflareaccess.com"
+  },
+
   // Extracted article text (written by radar-ingest), shown in the admin review queue.
   "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "radar-articles" }],
 

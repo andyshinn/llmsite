@@ -203,7 +203,7 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 | 0.7–0.9 | Confident items publish; borderline items wait for review |
 | 1 | Everything is reviewed (used for the backfill) |
 
-**Admin pages** sit behind Cloudflare Access (a self-hosted Access application for the site's `/admin` path), so there is no login code to write. The site still verifies the Access JWT on every `/admin` request and refuses cross-site form posts: if Access is not configured (`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets missing) or the token is invalid, `/admin` returns 503 or 403 instead of opening up. Workers with static assets do not receive `ctx.access`, which is why the token is checked directly.
+**Admin pages** sit behind Cloudflare Access (a self-hosted Access application for the site's `/admin` path), so there is no login code to write. The site still verifies the Access JWT on every `/admin` request and refuses cross-site form posts: if Access is not configured (`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` vars in `apps/site/wrangler.jsonc` missing) or the token is invalid, `/admin` returns 503 or 403 instead of opening up. Workers with static assets do not receive `ctx.access`, which is why the token is checked directly.
 
 **UI stack:** Tailwind CSS v4 with Heroicons and Tailwind's palette, server-rendered `.astro` components. Admin actions are plain HTML forms, so the admin ships no JavaScript. Tailwind Plus Elements (web components) is the choice when an interactive widget is needed; React is not used.
 

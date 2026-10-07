@@ -6,8 +6,8 @@ export interface AccessConfig {
 }
 
 /**
- * Read from Worker secrets set with Ops -> set-secret. Missing config returns
- * null, and the admin then stays locked rather than open.
+ * Read from `vars` in apps/site/wrangler.jsonc. Missing config returns null,
+ * and the admin then stays locked rather than open.
  */
 export function accessConfig(env: Record<string, unknown>): AccessConfig | null {
   const team = typeof env.ACCESS_TEAM_DOMAIN === "string" ? env.ACCESS_TEAM_DOMAIN.trim() : "";
