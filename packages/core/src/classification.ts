@@ -20,6 +20,8 @@ export function classificationSchema(categories: readonly string[]) {
   return z.object({
     // The model's one-line rationale; shown to reviewers. Optional so older outputs still parse.
     reason: z.string().trim().max(400).optional(),
+    // Set by the ingest Worker (not the model): which model produced this classification.
+    model: z.string().optional(),
     is_ai_dev_tool: z.boolean(),
     post_type: z.enum(POST_TYPES),
     tool_name: z.string().transform((v) => v.trim()),

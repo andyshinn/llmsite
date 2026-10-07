@@ -16,3 +16,7 @@ UPDATE tools SET category = 'mcp-dev' WHERE category = 'mcp-server';
 UPDATE posts
 SET classification = json_set(classification, '$.category', 'mcp-dev')
 WHERE classification IS NOT NULL AND json_extract(classification, '$.category') = 'mcp-server';
+-- Reviewer corrections are overlaid on classifications for few-shot examples.
+UPDATE review_decisions
+SET corrected_fields = json_set(corrected_fields, '$.category', 'mcp-dev')
+WHERE corrected_fields IS NOT NULL AND json_extract(corrected_fields, '$.category') = 'mcp-server';

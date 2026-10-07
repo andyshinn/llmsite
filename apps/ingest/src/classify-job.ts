@@ -43,12 +43,16 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   // Dedupe: the same link was already classified (e.g. cross-posted to HN and lobste.rs).
   // Requires the exact URL, not just the canonical one: a GitHub release link shares
   // its canonical owner/repo URL with the launch post but needs its own type and version.
+  // Only reuses a result from the current model, so changing model_id (or re-queueing
+  // posts after a change) always gets a fresh classification.
   if (!classification) {
     const twin = await db
       .prepare(
-        "SELECT classification FROM posts WHERE canonical_url = ? AND url = ? AND id != ? AND classification IS NOT NULL ORDER BY id LIMIT 1",
+        `SELECT classification FROM posts
+         WHERE canonical_url = ? AND url = ? AND id != ? AND json_extract(classification, '$.model') = ?
+         ORDER BY id LIMIT 1`,
       )
-      .bind(post.canonical_url, post.url, post.id)
+      .bind(post.canonical_url, post.url, post.id, model)
       .first<{ classification: string }>();
     classification = parseStored(twin?.classification ?? null);
     via = "duplicate_url";
@@ -66,7 +70,7 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
       console.warn(JSON.stringify({ event: "classify_invalid", post_id: post.id, error: result.error }));
       return;
     }
-    classification = result.value;
+    classification = { ...result.value, model };
     via = "model";
     await db
       .prepare("UPDATE posts SET classification = ?, confidence = ?, post_type = ?, version = ? WHERE id = ?")
@@ -137,13 +141,15 @@ export async function loadFewShot(db: D1Database, limit: number, categories: rea
   const schema = classificationSchema(categories);
   const examples: FewShotExample[] = [];
   for (const r of results) {
-    const merged = {
+    const merged: Record<string, unknown> = {
       confidence: 1,
       ...(r.classification ? JSON.parse(r.classification) : {}),
       ...(r.corrected_fields ? JSON.parse(r.corrected_fields) : {}),
     };
-    if (!schema.safeParse(merged).success) continue;
-    examples.push({ post: { source: r.source, title: r.title, url: r.url }, output: merged });
+    const parsed = schema.safeParse(merged);
+    if (!parsed.success) continue;
+    const { model: _, ...output } = parsed.data; // bookkeeping, not part of the answer
+    examples.push({ post: { source: r.source, title: r.title, url: r.url }, output });
     if (examples.length === limit) break;
   }
   return examples;

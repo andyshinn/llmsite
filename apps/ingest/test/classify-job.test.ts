@@ -198,6 +198,20 @@ describe("runClassifyJob", () => {
     expect((await post(second))!.tool_id).toBe((await post(first))!.tool_id);
   });
 
+  it("does not reuse a same-URL result from a different model (e.g. after a model change)", async () => {
+    const url = "https://github.com/patchwork-labs/patchwork";
+    const first = await insertPost({ url });
+    await runClassifyJob({ kind: "classify", post_id: first }, makeDeps({ ai: fakeAi(tool()) }));
+    expect(JSON.parse((await post(first))!.classification as string).model).toBe("@cf/zai-org/glm-5.3-flash");
+    await env.DB.prepare("UPDATE settings SET value = '\"@cf/other/model\"' WHERE key = 'model_id'").run();
+    const second = await insertPost({ url });
+    const ai = fakeAi(tool({ post_type: "discussion" }));
+    await runClassifyJob({ kind: "classify", post_id: second }, makeDeps({ ai }));
+    expect(ai.calls).toHaveLength(1);
+    expect((await post(second))!.post_type).toBe("discussion");
+    await env.DB.prepare("UPDATE settings SET value = '\"@cf/zai-org/glm-5.3-flash\"' WHERE key = 'model_id'").run();
+  });
+
   it("classifies a release link on its own even though it shares the repo's canonical URL", async () => {
     const launch = await insertPost({ url: "https://github.com/patchwork-labs/patchwork" });
     await runClassifyJob({ kind: "classify", post_id: launch }, makeDeps({ ai: fakeAi(tool()) }));
