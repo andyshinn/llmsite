@@ -21,7 +21,8 @@ const CATEGORY_HINTS: Record<string, string> = {
   agent: "coding agents that plan and make changes on their own",
   ide: "AI IDEs and editor extensions",
   cli: "command-line tools",
-  "mcp-server": "Model Context Protocol servers",
+  "mcp-dev": "MCP servers for software development work (code hosts, databases, deployment, testing, error tracking, docs)",
+  "mcp-general": "MCP servers for anything else (data, analytics, research, productivity, commerce)",
   other: "an in-scope tool that fits none of the other categories",
 };
 
@@ -29,21 +30,26 @@ export function systemPrompt(categories: readonly string[]): string {
   const categoryLines = categories.map((c) => `  - ${c}${CATEGORY_HINTS[c] ? `: ${CATEGORY_HINTS[c]}` : ""}`).join("\n");
   return `You classify posts from developer communities for a public directory of AI coding tools.
 
-In scope: developer tools that use AI to help write, run or manage code. That means coding agents, AI IDEs and editor extensions, CLIs, and MCP servers. Open-source and closed-source tools both count.
+Decide whether the post is mainly about ONE specific product or project that is an AI coding tool. Set is_ai_dev_tool to true only if all three hold:
+1. The post presents or discusses one specific, named tool: a launch, a release, a repository, or a post centered on using that tool. News stories, essays, opinion pieces, tutorials, benchmarks, studies and company announcements do not count, even when they mention AI tools.
+2. The tool is for software developers, and its job is writing, reviewing, testing, debugging, running, deploying or managing code.
+3. It uses AI to do that job, or it is built specifically to work with AI coding agents: a plugin, skill, hook or extension for Claude Code, Codex, Cursor or similar; or a monitor, orchestrator or session manager for coding agents.
 
-A tool is in scope only if BOTH are true:
-1. AI (an LLM or other model) does the core work of the tool, and
-2. the tool helps software developers write, review, test, debug, run or deploy code. Any MCP server also counts.
+Exception: a post about one specific MCP (Model Context Protocol) server is always in scope, whatever the server is for. Use category "mcp-dev" when it helps with software development and "mcp-general" otherwise. This covers products that are mainly an MCP server. A product built for something else that also offers an MCP interface (an error tracker, a video editor, a smart-home controller) is judged by what it is mainly for.
 
-Out of scope (is_ai_dev_tool = false):
-- apps that were built with AI ("vibe-coded") but do not use AI themselves
-- developer tools without AI at their core: compilers, linkers, databases, terminals, CI tools, libraries
-- AI products for anything other than coding: chat clients, writing, PDFs, analytics, search, companionship
-- SDKs, frameworks and libraries for building LLM apps or agents
-- models, papers, benchmarks, evaluations, datasets and general AI news or opinion
+These are NOT AI coding tools (is_ai_dev_tool = false):
+- models, inference engines, training or evaluation projects, benchmarks
+- SDKs, frameworks, guardrails, RAG pipelines and other building blocks for LLM apps or general-purpose agents
+- general-purpose AI agents and assistants (personal, browser, email, business, shopping) and infrastructure for them (browsers, VMs, gateways)
+- agent skills or plugins whose job is not code (video, design, marketing, research, e-commerce)
+- apps that were built with AI but do not use it, and developer tools that neither use AI nor target AI coding agents
+- AI products for non-developers (notes, writing, chat, analytics, search, media)
 
-Fields:
-- is_ai_dev_tool: true only if the post is mainly about one specific in-scope tool. When unsure, choose false.
+When unsure, choose false.
+
+Fields (write "reason" first):
+- reason: one short sentence saying what the post is about and who uses the tool for what.
+- is_ai_dev_tool: true only if all three conditions above hold, or the post is about one specific MCP server.
 - post_type: "launch" (a new tool is announced), "release" (a new version of an existing tool), "discussion" (experience, opinion or question about a tool), "roundup" (comparisons, lists, "awesome-X"), or "news".
 - tool_name: the tool's name as its makers write it; "" if there is none.
 - homepage_url: the tool's own website, or null. Not a GitHub, blog or news URL.
@@ -51,6 +57,7 @@ Fields:
 - version: the version number for releases, else null.
 - category: one of:
 ${categoryLines}
+  "other" is only for in-scope tools that fit no other category, never for out-of-scope posts.
 - tags: up to 5 short lowercase tags (languages, editors, model providers, platforms).
 - is_open_source: true if the source code is publicly available under an open license.
 - description: one plain, factual line under 140 characters. No marketing language.
@@ -63,9 +70,27 @@ export function userPrompt(post: PostInput, text: string): string {
   return `Source: ${post.source}\nTitle: ${post.title}\nURL: ${post.url}\n\nContent:\n${text || "(no content could be fetched)"}`;
 }
 
+/**
+ * The model's answer from a Workers AI result. Older models return `{ response }`
+ * (a string, or an object in JSON mode); newer ones return the OpenAI shape
+ * `{ choices: [{ message: { content } }] }`.
+ */
+export function modelText(out: unknown): unknown {
+  const o = out as { response?: unknown; choices?: { message?: { content?: unknown } }[] } | null;
+  return o?.response ?? o?.choices?.[0]?.message?.content ?? null;
+}
+
 /** Stage 3: one Workers AI call, validated with zod; an invalid response is retried once. */
 export async function classifyPost(
-  input: { model: string; categories: readonly string[]; post: PostInput; text: string; fewShot: FewShotExample[] },
+  input: {
+    model: string;
+    categories: readonly string[];
+    post: PostInput;
+    text: string;
+    fewShot: FewShotExample[];
+    /** For reasoning models: "none" | "low" | "medium" | "high" (supported levels vary by model). */
+    reasoningEffort?: string;
+  },
   ai: RunModel,
 ): Promise<ClassifyResult> {
   const messages = [
@@ -80,14 +105,15 @@ export async function classifyPost(
   const request = {
     messages,
     response_format: { type: "json_schema", json_schema: classificationJsonSchema(input.categories) },
-    max_tokens: 600,
+    // Reasoning models spend part of this on thinking before the JSON.
+    max_tokens: 1500,
     temperature: 0,
+    ...(input.reasoningEffort ? { reasoning_effort: input.reasoningEffort } : {}),
   };
 
   let failure = { raw: "", error: "" };
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const out = await ai(input.model, request);
-    const response = (out as { response?: unknown } | null)?.response;
+    const response = modelText(await ai(input.model, request));
     const raw = typeof response === "string" ? response : JSON.stringify(response ?? null);
     let parsed: unknown;
     try {

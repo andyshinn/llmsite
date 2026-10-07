@@ -121,7 +121,7 @@ describe("normalizeHomepage", () => {
 });
 
 describe("classificationSchema", () => {
-  const schema = classificationSchema(["agent", "ide", "cli", "mcp-server", "other"]);
+  const schema = classificationSchema(["agent", "ide", "cli", "mcp-dev", "mcp-general", "other"]);
   const valid = {
     is_ai_dev_tool: true,
     post_type: "launch",

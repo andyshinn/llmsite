@@ -17,6 +17,7 @@ on:
           - set-secret
           - backfill
           - trigger-source
+          - reclassify-queued
       sql:
         description: "sql: one read-only statement (SELECT / WITH / EXPLAIN)"
         type: string
@@ -131,3 +132,43 @@ jobs:
               | curl -fsS -X POST -H "$auth" -H "Content-Type: application/json" --data @- "$api/$queue_id/messages" > /dev/null
             echo "Enqueued $job" | tee -a "$GITHUB_STEP_SUMMARY"
           done
+
+      # One-off after a classifier change: re-run classification on queued posts nobody
+      # has reviewed yet. Their extracted text is cached in R2, so nothing is re-fetched.
+      - name: Reclassify unreviewed queued posts
+        if: inputs.action == 'reclassify-queued'
+        working-directory: apps/ingest
+        run: |
+          cat > reclassify.sql <<'SQL'
+          UPDATE posts
+          SET status = 'pending', classification = NULL, confidence = NULL, raw_output = NULL,
+              tool_id = NULL, post_type = NULL, version = NULL
+          WHERE status = 'queued' AND id NOT IN (SELECT post_id FROM review_decisions);
+          -- Tools those posts created that nothing else uses (never published, no other posts, merges or reports).
+          DELETE FROM tool_aliases WHERE tool_id IN (
+            SELECT t.id FROM tools t WHERE t.status = 'queued'
+              AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = t.id)
+              AND NOT EXISTS (SELECT 1 FROM tool_merges m WHERE m.from_tool_id = t.id OR m.into_tool_id = t.id)
+              AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.tool_id = t.id)
+              AND NOT EXISTS (SELECT 1 FROM repo_snapshots s WHERE s.tool_id = t.id));
+          DELETE FROM tools WHERE id IN (
+            SELECT t.id FROM tools t WHERE t.status = 'queued'
+              AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = t.id)
+              AND NOT EXISTS (SELECT 1 FROM tool_merges m WHERE m.from_tool_id = t.id OR m.into_tool_id = t.id)
+              AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.tool_id = t.id)
+              AND NOT EXISTS (SELECT 1 FROM repo_snapshots s WHERE s.tool_id = t.id));
+          SQL
+          pnpm exec wrangler d1 execute DB --remote --file reclassify.sql
+          pnpm exec wrangler d1 execute DB --remote --json --command "SELECT id FROM posts WHERE status = 'pending'" \
+            | jq -c '[.[0].results[].id | {body: {kind: "classify", post_id: .}, content_type: "json"}]' > jobs.json
+          total=$(jq length jobs.json)
+
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          queue_id=$(curl -fsS -H "$auth" "$api?per_page=100" | jq -r '.result[] | select(.queue_name == "radar-classify") | .queue_id')
+          [ -n "$queue_id" ] || { echo "::error::Queue radar-classify not found."; exit 1; }
+          for offset in $(seq 0 100 $((total - 1))); do
+            jq -c --argjson o "$offset" '{messages: .[$o:$o + 100]}' jobs.json \
+              | curl -fsS -X POST -H "$auth" -H "Content-Type: application/json" --data @- "$api/$queue_id/messages/batch" > /dev/null
+          done
+          echo "Re-queued $total posts for classification. At one post at a time this takes roughly $((total * 4 / 60)) minutes; the AI Gateway's daily cap may spread it over more than one day." | tee -a "$GITHUB_STEP_SUMMARY"

@@ -4,7 +4,7 @@ import { loadFewShot } from "../src/classify-job.ts";
 import { resetDb } from "./helpers.ts";
 
 beforeEach(resetDb);
-const CATEGORIES = ["agent", "ide", "cli", "mcp-server", "other"];
+const CATEGORIES = ["agent", "ide", "cli", "mcp-dev", "mcp-general", "other"];
 const model = {
   is_ai_dev_tool: true, post_type: "launch", tool_name: "Patchwork", homepage_url: null, github_repo: "acme/patchwork",
   version: null, category: "agent", tags: [], is_open_source: true, description: "Reviews PRs.", confidence: 0.9,

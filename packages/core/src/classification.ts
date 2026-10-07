@@ -18,6 +18,10 @@ export function normalizeHomepage(value: string | null): string | null {
 /** zod schema for the model's JSON. `categories` comes from the settings table. */
 export function classificationSchema(categories: readonly string[]) {
   return z.object({
+    // The model's one-line rationale; shown to reviewers. Optional so older outputs still parse.
+    reason: z.string().trim().max(400).optional(),
+    // Set by the ingest Worker (not the model): which model produced this classification.
+    model: z.string().optional(),
     is_ai_dev_tool: z.boolean(),
     post_type: z.enum(POST_TYPES),
     tool_name: z.string().transform((v) => v.trim()),
@@ -38,7 +42,9 @@ export function classificationJsonSchema(categories: readonly string[]) {
   const nullable = { type: ["string", "null"] };
   return {
     type: "object",
+    // "reason" comes first so the model states what the post is before deciding.
     properties: {
+      reason: { type: "string" },
       is_ai_dev_tool: { type: "boolean" },
       post_type: { type: "string", enum: [...POST_TYPES] },
       tool_name: { type: "string" },
@@ -52,7 +58,7 @@ export function classificationJsonSchema(categories: readonly string[]) {
       confidence: { type: "number" },
     },
     required: [
-      "is_ai_dev_tool", "post_type", "tool_name", "homepage_url", "github_repo", "version",
+      "reason", "is_ai_dev_tool", "post_type", "tool_name", "homepage_url", "github_repo", "version",
       "category", "tags", "is_open_source", "description", "confidence",
     ],
   };

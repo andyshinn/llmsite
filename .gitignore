@@ -7,3 +7,4 @@ dist/
 worker-configuration.d.ts
 *.tsbuildinfo
 .DS_Store
+.cache/
