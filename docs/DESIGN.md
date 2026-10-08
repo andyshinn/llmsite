@@ -8,6 +8,23 @@ A public website that discovers new AI coding tools daily from developer communi
 
 **In scope:** developer tools that use AI to help write, run or manage code. This means coding agents, AI IDEs and editor extensions, CLIs, and tools built for AI coding-agent workflows (plugins, skills, hooks, monitors, orchestrators). Every MCP server is in scope too, whatever it is for, in its own category: `mcp-dev` when it helps with software development, `mcp-general` otherwise. Both open-source and closed-source tools are included; closed-source tools are flagged as such.
 
+**Categories** (by what the tool is for; the classifier picks the most specific one that fits):
+
+| Category | For |
+| --- | --- |
+| `agent` | Coding agents that plan and make changes on their own |
+| `agent-addon` | Add-ons installed into a coding agent: plugins, skills, hooks, mods, status lines, rule and prompt packs |
+| `agent-tools` | Tools that run alongside coding agents: running agents in parallel, dashboards, usage and cost tracking, remote control, sandboxes, model routing |
+| `agent-security` | Keeping coding agents safe: guardrails, blocking dangerous commands, catching leaked secrets, audit trails, pinning MCP tools |
+| `review-testing` | AI code review, test generation, and checking AI-written code |
+| `memory-context` | Memory for coding agents, codebase docs or indexes made for agents, keeping an agent's context small |
+| `ide` | AI IDEs and editor extensions |
+| `cli` | AI command-line tools that fit none of the more specific categories |
+| `mcp-dev` / `mcp-general` | MCP servers, for software development or for anything else |
+| `other` | In-scope tools that fit nothing above (always queued, as a signal the list may need to grow) |
+
+The list lives in the `categories` setting; the one-line description the classifier sees for each is in `apps/ingest/src/classifier.ts`, so a category added from the settings page works but has no description until the code adds one.
+
 **Out of scope:**
 
 - SDKs and libraries for building LLM apps
@@ -92,7 +109,7 @@ The model must return JSON in this shape:
   "homepage_url": "string | null",
   "github_repo": "owner/repo | null",
   "version": "string | null",
-  "category": "agent | ide | cli | mcp-dev | mcp-general | other",
+  "category": "one of the categories setting (see Categories above)",
   "tags": ["string"],
   "is_open_source": true,
   "description": "one line, under 140 characters",
@@ -244,7 +261,7 @@ Model prices are approximate, taken from third-party trackers, and should be con
 4. Build the admin review queue (added: steps 6 and 7 need it).
 5. Build the admin status panel and settings page (added): run a source now, start a backfill, re-classify the queue, and edit every setting without a migration.
 6. Run the 90-day backfill with the threshold at 1 and review the queue.
-7. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
+7. Tune the prompt, few-shot examples, category list and trending weights against the backfill. (The category list was expanded before the backfill, after the first re-classify left half the queue in `other`, so the backfill does not have to be re-classified for it.)
 8. Lower the threshold and make the site public.
 
 **Open questions:**
