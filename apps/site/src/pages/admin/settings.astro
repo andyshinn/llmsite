@@ -2,7 +2,17 @@
 import { env } from "cloudflare:workers";
 import Notice from "../../components/Notice.astro";
 import Admin from "../../layouts/Admin.astro";
-import { REASONING_LEVELS, SETTING_FIELDS, SettingError, WEIGHT_KEYS, loadSettings, saveSetting } from "../../lib/settings-admin.ts";
+import type { TagGroups } from "@radar/core";
+import {
+  REASONING_LEVELS,
+  SETTING_FIELDS,
+  SettingError,
+  WEIGHT_KEYS,
+  formatTagGroups,
+  loadSettings,
+  saveSetting,
+  suggestedTags,
+} from "../../lib/settings-admin.ts";
 import { btnPrimary, card, input, label } from "../../lib/ui.ts";
 
 // Errors and the submitted (unsaved) values, so a rejected edit is not lost.
@@ -22,13 +32,14 @@ if (Astro.request.method === "POST") {
 }
 
 const saved = Astro.url.searchParams.get("saved");
-const values = await loadSettings(env.DB);
+const [values, suggestions] = await Promise.all([loadSettings(env.DB), suggestedTags(env.DB)]);
 const WEIGHT_LABELS: Record<string, string> = { w_s: "Sources", w_e: "Engagement", w_g: "Star growth", g: "Gravity" };
 
 // Value shown in a field: what was just submitted if it failed, else what is stored.
 function shown(key: string, name = "value"): string {
   if (failed?.key === key) return String(failed.form.get(name) ?? "");
   const v = values[key];
+  if (key === "tags") return formatTagGroups((v ?? []) as TagGroups);
   if (name !== "value") return String((v as Record<string, unknown> | undefined)?.[name] ?? "");
   return Array.isArray(v) ? v.join("\n") : String(v ?? "");
 }
@@ -65,7 +76,9 @@ function shown(key: string, name = "value"): string {
               <label for={`${f.key}-value`} class={label}>
                 {f.label}
               </label>
-              {f.kind === "lines" ? (
+              {f.kind === "taggroups" ? (
+                <textarea id={`${f.key}-value`} name="value" rows="18" class={`${input} mt-1 font-mono text-sm`} autocapitalize="off" spellcheck="false">{shown(f.key)}</textarea>
+              ) : f.kind === "lines" ? (
                 <textarea id={`${f.key}-value`} name="value" rows="6" class={`${input} mt-1 font-mono text-sm`} autocapitalize="off" spellcheck="false">{shown(f.key)}</textarea>
               ) : f.kind === "reasoning" ? (
                 <select id={`${f.key}-value`} name="value" class={`${input} mt-1`}>
@@ -91,6 +104,19 @@ function shown(key: string, name = "value"): string {
             </>
           )}
           <p class="mt-2 text-xs text-gray-500">{f.help}</p>
+          {f.kind === "taggroups" && suggestions.length > 0 && (
+            <div class="mt-3 rounded-lg bg-gray-50 p-3">
+              <p class="text-sm font-medium text-gray-900">Suggested by the classifier</p>
+              <p class="mt-0.5 text-xs text-gray-500">Tags it wanted but couldn't use, with how many queued or published posts asked. Add any that matter above.</p>
+              <ul class="mt-2 flex flex-wrap gap-1.5">
+                {suggestions.map((t) => (
+                  <li class="rounded-md bg-white px-2 py-0.5 font-mono text-xs text-gray-700 ring-1 ring-gray-200 ring-inset">
+                    {t.tag} <span class="text-gray-400">{t.n}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <button type="submit" class={`${btnPrimary} mt-3 w-full`}>Save {f.label.toLowerCase()}</button>
         </form>
       ))

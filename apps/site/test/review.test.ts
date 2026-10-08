@@ -21,7 +21,7 @@ beforeEach(async () => {
 
 const classification = (over: Record<string, unknown> = {}) => ({
   is_ai_dev_tool: true, post_type: "launch", tool_name: "Patchwork", homepage_url: "https://patchwork.dev/",
-  github_repo: "acme/patchwork", version: null, category: "agent", tags: ["review"], is_open_source: true,
+  github_repo: "acme/patchwork", version: null, category: "agent", tags: ["claude-code"], is_open_source: true,
   description: "Reviews pull requests.", confidence: 0.9, ...over,
 });
 
@@ -146,22 +146,25 @@ describe("editPost", () => {
     const f = new FormData();
     const base: Record<string, string> = {
       is_ai_dev_tool: "true", post_type: "launch", tool_name: "Patchwork", homepage_url: "https://patchwork.dev/",
-      github_repo: "acme/patchwork", version: "", category: "agent", tags: "review", is_open_source: "true",
+      github_repo: "acme/patchwork", version: "", category: "agent", tags: "claude-code", is_open_source: "true",
       description: "Reviews pull requests.",
     };
-    for (const [k, v] of Object.entries({ ...base, ...over })) f.set(k, v);
+    for (const [k, v] of Object.entries({ ...base, ...over })) {
+      if (k === "tags") for (const t of v.split(",").map((x) => x.trim()).filter(Boolean)) f.append(k, t); // one checkbox each
+      else f.set(k, v);
+    }
     return parseEditForm(f);
   };
 
   it("records only the changed fields and updates them on the same tool", async () => {
     const t = await tool("Patchwork");
     const id = await post(t);
-    expect(await editPost(db, id, form({ category: "cli", tags: "review, cli" }), true)).toBe("approved");
+    expect(await editPost(db, id, form({ category: "cli", tags: "claude-code, cli" }), true)).toBe("approved");
     expect(await decisions()).toEqual([
-      { post_id: id, decision: "edit", corrected_fields: '{"category":"cli","tags":["review","cli"]}', use_in_prompt: 1 },
+      { post_id: id, decision: "edit", corrected_fields: '{"category":"cli","tags":["claude-code","cli"]}', use_in_prompt: 1 },
     ]);
     const row = await db.prepare("SELECT category, tags, status FROM tools WHERE id = ?").bind(t).first();
-    expect(row).toEqual({ category: "cli", tags: '["review","cli"]', status: "published" });
+    expect(row).toEqual({ category: "cli", tags: '["claude-code","cli"]', status: "published" });
     expect(await status("posts", id)).toBe("published");
   });
 
@@ -202,6 +205,14 @@ describe("editPost", () => {
     await editPost(db, id, form({ tool_name: "", category: "cli" }), false);
     const row = await db.prepare("SELECT t.name FROM posts p JOIN tools t ON t.id = p.tool_id WHERE p.id = ?").bind(id).first();
     expect(row).toEqual({ name: "Patchwork" });
+  });
+
+  it("only keeps tags from the vocabulary", async () => {
+    const t = await tool("Patchwork");
+    const id = await post(t);
+    await editPost(db, id, form({ tags: "claude-code, not-a-tag, macos" }), false);
+    const row = await db.prepare("SELECT tags FROM tools WHERE id = ?").bind(t).first();
+    expect(row).toEqual({ tags: '["claude-code","macos"]' });
   });
 
   it("requires a tool name or repo", async () => {

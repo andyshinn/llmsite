@@ -28,11 +28,12 @@ if (Astro.request.method === "POST") {
 
 const item = await getQueueItem(env.DB, id);
 if (!item || item.post.status !== "queued") return Astro.redirect(`/admin/queue/${id}`, 302);
-const categories = await getSetting(env.DB, "categories");
+const [categories, tagGroups] = await Promise.all([getSetting(env.DB, "categories"), getSetting(env.DB, "tags")]);
 // Re-show what was submitted after an error; otherwise start from the model's output.
 const v: Record<string, unknown> = submitted ?? item.classification ?? { is_ai_dev_tool: true, post_type: "launch", category: "other" };
 const s = (k: string) => (v[k] === null || v[k] === undefined ? "" : String(v[k]));
-const tags = Array.isArray(v.tags) ? v.tags.join(", ") : "";
+const selectedTags = new Set(Array.isArray(v.tags) ? v.tags.map(String) : []);
+const suggested = Array.isArray(v.suggested_tags) ? v.suggested_tags.map(String) : [];
 ---
 
 <Admin title="Edit post" section="queue">
@@ -99,10 +100,23 @@ const tags = Array.isArray(v.tags) ? v.tags.join(", ") : "";
         </div>
       </fieldset>
     </div>
-    <div>
-      <label for="tags" class={label}>Tags <span class="font-normal text-gray-500">(comma-separated)</span></label>
-      <input id="tags" name="tags" value={tags} class={`${input} mt-1`} autocomplete="off" autocapitalize="off" />
-    </div>
+    <fieldset>
+      <legend class={label}>Tags</legend>
+      {tagGroups.map((g) => (
+        <div class="mt-2">
+          <p class="text-xs font-medium text-gray-500">{g.label}</p>
+          <div class="mt-1 flex flex-wrap gap-2">
+            {g.tags.map((t) => (
+              <label class="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm ring-1 ring-gray-300 ring-inset has-checked:bg-brand-50 has-checked:ring-brand-600">
+                <input type="checkbox" name="tags" value={t.slug} checked={selectedTags.has(t.slug)} class="size-4 accent-brand-600" />
+                {t.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+      {suggested.length > 0 && <p class="mt-2 text-xs text-gray-500">The model also suggested: {suggested.join(", ")} (add them under Settings → Tags to use them).</p>}
+    </fieldset>
     <div>
       <label for="description" class={label}>Description <span class="font-normal text-gray-500">(under 140 characters)</span></label>
       <textarea id="description" name="description" rows="3" maxlength="140" class={`${input} mt-1`}>{s("description")}</textarea>

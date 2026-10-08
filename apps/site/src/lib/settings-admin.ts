@@ -1,6 +1,6 @@
-import { SETTING_KEYS, type SettingKey, settingSchemas } from "@radar/core";
+import { SETTING_KEYS, type SettingKey, type TagGroups, settingSchemas } from "@radar/core";
 
-export type FieldKind = "number" | "integer" | "text" | "lines" | "weights" | "reasoning";
+export type FieldKind = "number" | "integer" | "text" | "lines" | "weights" | "reasoning" | "taggroups";
 
 export interface SettingField {
   key: SettingKey;
@@ -19,6 +19,12 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "max_fewshot", label: "Few-shot examples", help: "Most review decisions marked as examples that go into the prompt.", kind: "integer" },
   { key: "github_topics", label: "GitHub topics", help: "One per line. Repos with any of these topics are searched daily.", kind: "lines" },
   { key: "github_min_stars", label: "GitHub minimum stars", help: "Repos need at least this many stars to be classified.", kind: "integer" },
+  {
+    key: "tags",
+    label: "Tags",
+    help: 'A "# Group | what it means" line starts each group, then one "slug: Label" per line. The classifier may only use these.',
+    kind: "taggroups",
+  },
   { key: "trending_weights", label: "Trending weights", help: "Source weight, engagement weight, star-growth weight and gravity exponent.", kind: "weights" },
 ];
 
@@ -52,17 +58,64 @@ export function parseSettingForm(field: SettingField, form: FormData): unknown {
         .filter(Boolean);
     case "weights":
       return Object.fromEntries(WEIGHT_KEYS.map((k) => [k, str(k) === "" ? NaN : Number(str(k))]));
+    case "taggroups":
+      return parseTagGroups(String(form.get("value") ?? ""));
   }
 }
 
 export class SettingError extends Error {}
+
+const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/** The tags setting as editable text: "# Group | hint" headers, then "slug: Label" lines. */
+export function formatTagGroups(groups: TagGroups): string {
+  return groups
+    .map((g) => [`# ${g.label}${g.hint ? ` | ${g.hint}` : ""}`, ...g.tags.map((t) => `${t.slug}: ${t.label}`)].join("\n"))
+    .join("\n\n");
+}
+
+/** Inverse of formatTagGroups. A bare "slug" line uses the slug as its label. */
+export function parseTagGroups(text: string): unknown {
+  const groups: { slug: string; label: string; hint: string; tags: { slug: string; label: string }[] }[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) {
+      const [label = "", hint = ""] = line.replace(/^#+/, "").split("|").map((p) => p.trim());
+      groups.push({ slug: slugify(label), label, hint, tags: [] });
+      continue;
+    }
+    const group = groups.at(-1);
+    if (!group) throw new SettingError(`"${line}" comes before any "# Group" line.`);
+    const [slug = "", ...rest] = line.split(":");
+    const label = rest.join(":").trim();
+    group.tags.push({ slug: slug.trim(), label: label || slug.trim() });
+  }
+  return groups;
+}
+
+/** Tags the classifier asked for that are not in the vocabulary, most requested first. */
+export async function suggestedTags(db: D1Database, limit = 20): Promise<{ tag: string; n: number }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT lower(j.value) AS tag, count(*) AS n
+       FROM posts p, json_each(p.classification, '$.suggested_tags') j
+       WHERE p.status IN ('queued', 'published') AND p.classification IS NOT NULL
+       GROUP BY 1 ORDER BY n DESC, tag LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ tag: string; n: number }>();
+  return results;
+}
 
 /** Validates with the same schema the Worker uses, then saves. */
 export async function saveSetting(db: D1Database, key: string, form: FormData): Promise<void> {
   const field = SETTING_FIELDS.find((f) => f.key === key);
   if (!field) throw new SettingError("Unknown setting.");
   const parsed = settingSchemas[field.key].safeParse(parseSettingForm(field, form));
-  if (!parsed.success) throw new SettingError(parsed.error.issues.map((i) => i.message).join("; "));
+  if (!parsed.success) {
+    throw new SettingError(parsed.error.issues.map((i) => (i.path.length && field.kind === "taggroups" ? `${describePath(form, i.path)}: ${i.message}` : i.message)).join("; "));
+  }
   if (field.kind === "integer" && !Number.isInteger(parsed.data)) throw new SettingError("Must be a whole number.");
   if (field.kind === "reasoning" && !(REASONING_LEVELS as readonly string[]).includes(parsed.data as string)) {
     throw new SettingError(`Must be one of: ${REASONING_LEVELS.filter(Boolean).join(", ")}, or empty.`);
@@ -71,4 +124,13 @@ export async function saveSetting(db: D1Database, key: string, form: FormData): 
     .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
     .bind(field.key, JSON.stringify(parsed.data))
     .run();
+}
+
+/** "Works with, tag 3" for a tag-groups validation error path like [0, "tags", 2, "slug"]. */
+function describePath(form: FormData, path: PropertyKey[]): string {
+  const groups = parseTagGroups(String(form.get("value") ?? "")) as { label: string; tags: { slug: string }[] }[];
+  const group = typeof path[0] === "number" ? groups[path[0]] : undefined;
+  if (!group) return "Tags";
+  const tag = path[1] === "tags" && typeof path[2] === "number" ? group.tags[path[2]] : undefined;
+  return tag ? `${group.label}, "${tag.slug}"` : group.label || "Group";
 }
