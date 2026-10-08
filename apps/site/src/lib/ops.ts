@@ -106,13 +106,23 @@ export async function startBackfill(db: D1Database, fetchQueue: Queue, choice: s
   return jobs;
 }
 
-export async function reclassifyPreview(db: D1Database): Promise<{ posts: number; kept: number }> {
-  return (await db.prepare(RESET_PREVIEW_SQL).first<{ posts: number; kept: number }>()) ?? { posts: 0, kept: 0 };
+export interface ReclassifyPreview {
+  /** Unreviewed queued posts that will be re-run. */
+  posts: number;
+  /** Queued posts with a review decision, left alone. */
+  kept: number;
+  /** Posts dropped by an older model, re-run only if chosen. */
+  oldDrops: number;
 }
 
-/** Resets unreviewed queued posts and enqueues every pending post for classification. */
-export async function reclassifyQueued(db: D1Database, classifyQueue: Queue, now = Date.now()): Promise<number> {
-  const ids = await resetUnreviewedQueued(db);
+export async function reclassifyPreview(db: D1Database): Promise<ReclassifyPreview> {
+  const r = await db.prepare(RESET_PREVIEW_SQL).first<{ posts: number; kept: number; old_drops: number }>();
+  return { posts: r?.posts ?? 0, kept: r?.kept ?? 0, oldDrops: r?.old_drops ?? 0 };
+}
+
+/** Resets unreviewed queued posts (and, if chosen, old-model drops) and enqueues every pending post for classification. */
+export async function reclassifyQueued(db: D1Database, classifyQueue: Queue, now = Date.now(), options: { includeOldDrops?: boolean } = {}): Promise<number> {
+  const ids = await resetUnreviewedQueued(db, options);
   // Forced: re-run the model even when a same-URL post already has a result.
   await sendAll<ClassifyJob>(classifyQueue, ids.map((post_id) => ({ kind: "classify", post_id, force: true })));
   if (ids.length > 0) {

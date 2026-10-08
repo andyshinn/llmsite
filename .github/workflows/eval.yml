@@ -9,9 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: Workers AI model ID
+        description: "Workers AI model ID; empty for production's model_id setting"
         type: string
-        default: "@cf/zai-org/glm-5.3-flash"
+        required: false
+      categories:
+        description: "Comma-separated category list to try; empty for production's categories setting"
+        type: string
+        required: false
       reasoning:
         description: "reasoning_effort for reasoning models (low / medium / high / none); empty to omit"
         type: string
@@ -47,11 +51,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }} # README fetches for GitHub posts
           MODEL: ${{ inputs.model }}
+          CATEGORIES: ${{ inputs.categories }}
           REASONING: ${{ inputs.reasoning }}
           RPM: ${{ inputs.rpm }}
           LIMIT: ${{ inputs.limit }}
         run: |
-          args=(--model="$MODEL" --rpm="$RPM" --out=results.json)
+          args=(--rpm="$RPM" --out=results.json)
+          if [ -n "$MODEL" ]; then args+=(--model="$MODEL"); fi
+          if [ -n "$CATEGORIES" ]; then args+=(--categories="$CATEGORIES"); fi
           if [ -n "$REASONING" ]; then args+=(--reasoning="$REASONING"); fi
           if [ -n "$LIMIT" ]; then args+=(--limit="$LIMIT"); fi
           node scripts/eval-classifier.ts "${args[@]}" | tee report.txt

@@ -8,6 +8,23 @@ A public website that discovers new AI coding tools daily from developer communi
 
 **In scope:** developer tools that use AI to help write, run or manage code. This means coding agents, AI IDEs and editor extensions, CLIs, and tools built for AI coding-agent workflows (plugins, skills, hooks, monitors, orchestrators). Every MCP server is in scope too, whatever it is for, in its own category: `mcp-dev` when it helps with software development, `mcp-general` otherwise. Both open-source and closed-source tools are included; closed-source tools are flagged as such.
 
+**Categories** (by what the tool is for; the classifier picks the most specific one that fits):
+
+| Category | For |
+| --- | --- |
+| `agent` | Coding agents that plan and make changes on their own |
+| `agent-addon` | Add-ons installed into a coding agent: plugins, skills, hooks, mods, status lines, rule and prompt packs |
+| `agent-tools` | Tools made for coding agents that run alongside them: running agents in parallel, dashboards, usage and cost tracking, remote control, sandboxes for coding agents |
+| `agent-security` | Keeping coding agents safe: guardrails, blocking dangerous commands, catching leaked secrets, audit trails, pinning MCP tools |
+| `review-testing` | AI code review, test generation, and checking AI-written code |
+| `memory-context` | Memory for coding agents, codebase docs or indexes made for agents, keeping an agent's context small |
+| `ide` | AI IDEs and editor extensions |
+| `cli` | AI command-line tools that fit none of the more specific categories |
+| `mcp-dev` / `mcp-general` | MCP servers, for software development or for anything else |
+| `other` | In-scope tools that fit nothing above (always queued, as a signal the list may need to grow) |
+
+The list lives in the `categories` setting; the one-line description the classifier sees for each is in `apps/ingest/src/classifier.ts`, so a category added from the settings page works but has no description until the code adds one.
+
 **Out of scope:**
 
 - SDKs and libraries for building LLM apps
@@ -92,7 +109,7 @@ The model must return JSON in this shape:
   "homepage_url": "string | null",
   "github_repo": "owner/repo | null",
   "version": "string | null",
-  "category": "agent | ide | cli | mcp-dev | mcp-general | other",
+  "category": "one of the categories setting (see Categories above)",
   "tags": ["string"],
   "is_open_source": true,
   "description": "one line, under 140 characters",
@@ -212,7 +229,7 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 - **Tools:** edit tool details, merge two tools, split a past merge, hide a tool.
 - **Settings:** every key in `settings` (threshold, trending weights, category list, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
-- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:
+- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). Re-classify can also re-check posts dropped by a model other than the current `model_id`, since an older model's drops may hide real tools. These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:
   - **Classifying:** posts waiting, the rate over the last 15 minutes and an ETA. A warning appears when posts are waiting but nothing was classified in 15 minutes (usually the AI spend cap).
   - **Each backfill and re-classify** started from the panel (from `operations`), until a day after it finishes. A backfill shows fetch runs done out of expected (one per day for HN and GitHub, or a single run when the backfill covers two days or less; one for lobste.rs) and its stored posts classified. A re-classify shows its posts classified. Fetching counts as over once every run succeeds or none has started for an hour, so a day that keeps failing does not hold the backfill open forever. Progress is derived from `posts` and `source_runs` when the page loads, and a Refresh button reloads it (no JavaScript). Runs started from `ops.yml` only show in the Classifying line.
 
@@ -244,7 +261,7 @@ Model prices are approximate, taken from third-party trackers, and should be con
 4. Build the admin review queue (added: steps 6 and 7 need it).
 5. Build the admin status panel and settings page (added): run a source now, start a backfill, re-classify the queue, and edit every setting without a migration.
 6. Run the 90-day backfill with the threshold at 1 and review the queue.
-7. Tune the prompt, few-shot examples, category list and trending weights against the backfill.
+7. Tune the prompt, few-shot examples, category list and trending weights against the backfill. (The category list was expanded before the backfill, after the first re-classify left half the queue in `other`, so the backfill does not have to be re-classified for it.)
 8. Lower the threshold and make the site public.
 
 **Open questions:**
@@ -261,7 +278,7 @@ All development and operations happen from a phone, so nothing may require a loc
 | `bootstrap.yml` | Manual, run once | Creates the D1 database, R2 bucket and queues with Wrangler, then commits their IDs into `wrangler.jsonc` |
 | `ci.yml` | Pull request | Type checks, unit tests, migration dry run |
 | `deploy.yml` | Push to `main` | Applies D1 migrations, then deploys both Workers |
-| `eval.yml` | Manual, with inputs | Scores a classifier model and the current prompt against the hand-labeled set in `evals/classifier` (through the AI Gateway, so the spend cap applies) |
+| `eval.yml` | Manual, with inputs | Scores a classifier model and the current prompt against the hand-labeled set in `evals/classifier` (through the AI Gateway, so the spend cap applies). Model and categories default to production's settings; either can be overridden to try a candidate |
 | `ops.yml` | Manual, with inputs | Fallback for when the admin is unavailable, and for infrastructure. Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, trigger one source now, or re-classify unreviewed queued posts after a classifier change |
 
 **Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, and GitHub repo secrets. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.

@@ -65,7 +65,7 @@ describe("runClassifyJob", () => {
     // The prompt carries the post, the extracted text and the category enum.
     const request = ai.calls[0] as { messages: { content: string }[]; response_format: { json_schema: { properties: { category: { enum: string[] } } } } };
     expect(request.messages.at(-1)!.content).toContain("Patchwork reviews pull requests");
-    expect(request.response_format.json_schema.properties.category.enum).toEqual(["agent", "ide", "cli", "mcp-dev", "mcp-general", "other"]);
+    expect(request.response_format.json_schema.properties.category.enum).toEqual(["agent", "agent-addon", "agent-tools", "agent-security", "review-testing", "memory-context", "ide", "cli", "mcp-dev", "mcp-general", "other"]);
     // Settings from migration 0005: the reasoning model runs with low effort.
     expect((request as unknown as { reasoning_effort: string }).reasoning_effort).toBe("low");
   });

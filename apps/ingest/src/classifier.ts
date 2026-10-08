@@ -19,8 +19,16 @@ export type ClassifyResult =
 
 const CATEGORY_HINTS: Record<string, string> = {
   agent: "coding agents that plan and make changes on their own",
+  "agent-addon":
+    "add-ons installed into a coding agent (Claude Code, Codex, Cursor and similar): plugins, skills, hooks, mods, status lines, rule and prompt packs; security add-ons are agent-security",
+  "agent-tools":
+    "tools made for coding agents that run alongside them: running agents in parallel, dashboards and monitoring, usage and cost tracking, remote control, sandboxes for coding agents; security tools are agent-security",
+  "agent-security":
+    "tools that keep coding agents safe: guardrails and policy gates, blocking dangerous commands, catching leaked secrets, audit trails of what an agent did, pinning MCP tools",
+  "review-testing": "AI code review, test generation, and checking AI-written code",
+  "memory-context": "memory for coding agents, codebase docs or indexes made for agents, and tools that keep an agent's context small",
   ide: "AI IDEs and editor extensions",
-  cli: "command-line tools",
+  cli: "AI command-line tools whose job fits none of the more specific categories",
   "mcp-dev": "MCP servers for software development work (code hosts, databases, deployment, testing, error tracking, docs)",
   "mcp-general": "MCP servers for anything else (data, analytics, research, productivity, commerce)",
   other: "an in-scope tool that fits none of the other categories",
@@ -57,7 +65,7 @@ Fields (write "reason" first):
 - version: the version number for releases, else null.
 - category: one of:
 ${categoryLines}
-  "other" is only for in-scope tools that fit no other category, never for out-of-scope posts.
+  Choose by what the tool is for, using the most specific category that fits. "other" is only for in-scope tools that fit no other category, never for out-of-scope posts.
 - tags: up to 5 short lowercase tags (languages, editors, model providers, platforms).
 - is_open_source: true if the source code is publicly available under an open license.
 - description: one plain, factual line under 140 characters. No marketing language.
