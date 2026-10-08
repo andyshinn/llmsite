@@ -1,16 +1,25 @@
-import { type FetchJob, classifyJobSchema, fetchJobSchema } from "@radar/core";
+import { type FetchJob, type TrendingJob, classifyJobSchema, fetchJobSchema, trendingJobSchema } from "@radar/core";
 import { requeueStalePending, runClassifyJob } from "./classify-job.ts";
 import { depsFromEnv } from "./deps.ts";
 import { runFetchJob } from "./fetch-job.ts";
+import { runTrendingJob } from "./trending-job.ts";
 import { ADAPTERS } from "./sources/index.ts";
 
 export const FETCH_QUEUE = "radar-fetch";
 export const CLASSIFY_QUEUE = "radar-classify";
+/** An hour after the daily fetch, so most new posts are stored and classified. */
+export const TRENDING_CRON = "0 7 * * *";
 
 export default {
   // Daily run: one fetch job per source that has an adapter, plus a retry of
   // posts left pending (e.g. while the AI spend limit was blocking calls).
   async scheduled(controller, env, _ctx) {
+    if (controller.cron === TRENDING_CRON) {
+      const job: TrendingJob = { kind: "trending", mode: "daily" };
+      await env.FETCH_QUEUE.send(job);
+      console.log(JSON.stringify({ event: "cron", job: "trending" }));
+      return;
+    }
     const until = new Date(controller.scheduledTime).toISOString();
     const jobs: FetchJob[] = Object.keys(ADAPTERS).map((source) => ({
       kind: "fetch",
@@ -28,8 +37,10 @@ export default {
     for (const message of batch.messages) {
       try {
         if (batch.queue === FETCH_QUEUE) {
+          const trending = trendingJobSchema.safeParse(message.body);
           const job = fetchJobSchema.safeParse(message.body);
-          if (job.success) await runFetchJob(job.data, deps);
+          if (trending.success) await runTrendingJob(trending.data, deps);
+          else if (job.success) await runFetchJob(job.data, deps);
           else console.error(JSON.stringify({ event: "bad_message", queue: batch.queue, body: message.body }));
         } else if (batch.queue === CLASSIFY_QUEUE) {
           const job = classifyJobSchema.safeParse(message.body);

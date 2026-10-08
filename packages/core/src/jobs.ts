@@ -16,6 +16,14 @@ export const fetchJobSchema = z.object({
 });
 export type FetchJob = z.infer<typeof fetchJobSchema>;
 
+// Also on the fetch queue: the daily trending update (engagement refresh, GitHub
+// stats, trending scores). The 07:00 cron sends "daily"; the status panel "manual".
+export const trendingJobSchema = z.object({
+  kind: z.literal("trending"),
+  mode: z.enum(["daily", "manual"]),
+});
+export type TrendingJob = z.infer<typeof trendingJobSchema>;
+
 // Message body on the classify queue: one post per message.
 export const classifyJobSchema = z.object({
   kind: z.literal("classify"),
