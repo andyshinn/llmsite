@@ -42,6 +42,30 @@ it("enqueues one daily fetch job per source and re-queues stale pending posts", 
   expect(classifyQ.sent).toEqual([{ kind: "classify", post_id: stale!.id }]);
 });
 
+it("the 07:00 cron enqueues the daily trending update only", async () => {
+  const fetchQ = fakeQueue();
+  const classifyQ = fakeQueue();
+  const ctx = createExecutionContext();
+  await worker.scheduled(
+    createScheduledController({ cron: "0 7 * * *", scheduledTime: Date.parse("2026-10-06T07:00:00Z") }),
+    { ...env, FETCH_QUEUE: fetchQ.queue, CLASSIFY_QUEUE: classifyQ.queue },
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  expect(fetchQ.sent).toEqual([{ kind: "trending", mode: "daily" }]);
+  expect(classifyQ.sent).toEqual([]);
+});
+
+it("runs trending jobs from the fetch queue", async () => {
+  const batch = createMessageBatch("radar-fetch", [{ id: "t", timestamp: new Date(), attempts: 1, body: { kind: "trending", mode: "manual" } }]);
+  const ctx = createExecutionContext();
+  await worker.queue(batch, env, ctx);
+  const result = await getQueueResult(batch, ctx);
+  expect(result.explicitAcks).toEqual(["t"]);
+  const run = await env.DB.prepare("SELECT source, mode FROM source_runs").first();
+  expect(run).toEqual({ source: "trending", mode: "manual" });
+});
+
 it("sends every Workers AI call through the AI Gateway", async () => {
   const calls: unknown[][] = [];
   const ai = { run: async (...args: unknown[]) => (calls.push(args), { response: "{}" }) } as unknown as Ai;

@@ -8,7 +8,8 @@
   "observability": { "enabled": true },
 
   // Daily run (UTC).
-  "triggers": { "crons": ["0 6 * * *"] },
+  // 06:00 fetches every source; 07:00 refreshes engagement, GitHub stats and trending scores.
+  "triggers": { "crons": ["0 6 * * *", "0 7 * * *"] },
 
   // database_id is written by .github/workflows/bootstrap.yml.
   "d1_databases": [

@@ -8,8 +8,10 @@ import {
   reclassifyPreview,
   reclassifyQueued,
   runNow,
+  runTrending,
   sourceStatuses,
   startBackfill,
+  trendingStatus,
 } from "../src/lib/ops.ts";
 
 const db = env.DB;
@@ -260,5 +262,22 @@ describe("progress", () => {
     await db.batch([post("pending", at(200)), backfillRun("hn", at(200))]);
     [op] = await operations(db, T0 + 210 * 60_000);
     expect(op).toMatchObject({ fetch: { done: 2 }, classify: { done: 2, total: 2 } });
+  });
+});
+
+describe("trending", () => {
+  it("enqueues a manual trending update and reports the latest run", async () => {
+    const sent: unknown[] = [];
+    await runTrending({ send: async (body: unknown) => void sent.push(body) } as unknown as Queue);
+    expect(sent).toEqual([{ kind: "trending", mode: "manual" }]);
+
+    expect(await trendingStatus(db)).toBeNull();
+    await db
+      .prepare(
+        "INSERT INTO source_runs (source, mode, started_at, finished_at, items_fetched, error) VALUES ('trending', 'daily', ?, ?, 42, NULL), ('hn', 'daily', ?, ?, 9, NULL)",
+      )
+      .bind("2026-10-08T07:00:00.000Z", "2026-10-08T07:01:00.000Z", "2026-10-08T08:00:00.000Z", "2026-10-08T08:01:00.000Z")
+      .run();
+    expect(await trendingStatus(db)).toMatchObject({ mode: "daily", items_fetched: 42, error: null });
   });
 });

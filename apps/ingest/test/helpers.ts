@@ -69,7 +69,7 @@ export function fakeAi(...responses: unknown[]): RunModel & { calls: Record<stri
 
 export async function resetDb(): Promise<void> {
   await env.DB.batch(
-    ["review_decisions", "post_snapshots", "tool_aliases", "posts", "tool_merges", "tools", "source_runs"].map((t) =>
+    ["review_decisions", "post_snapshots", "repo_snapshots", "tool_aliases", "posts", "tool_merges", "tools", "source_runs"].map((t) =>
       env.DB.prepare(`DELETE FROM ${t}`),
     ),
   );

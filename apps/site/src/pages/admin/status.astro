@@ -15,8 +15,10 @@ import {
   reclassifyPreview,
   reclassifyQueued,
   runNow,
+  runTrending,
   sourceStatuses,
   startBackfill,
+  trendingStatus,
 } from "../../lib/ops.ts";
 import { SOURCE_LABELS, aboutDuration, btnPrimary, btnSecondary, card, input, label, timeAgo } from "../../lib/ui.ts";
 
@@ -35,6 +37,10 @@ if (Astro.request.method === "POST") {
     if (action === "run") {
       const jobs = await runNow(env.FETCH_QUEUE, String(form.get("source")));
       return Astro.redirect(`/admin/status?done=run&n=${jobs.length}`, 303);
+    }
+    if (action === "trending") {
+      await runTrending(env.FETCH_QUEUE);
+      return Astro.redirect("/admin/status?done=trending", 303);
     }
     if (action === "backfill") {
       const source = String(form.get("source"));
@@ -67,17 +73,20 @@ const doneCount = Number(Astro.url.searchParams.get("n") ?? 0);
 const doneMessage =
   done === "run"
     ? `Started ${doneCount} fetch ${doneCount === 1 ? "job" : "jobs"}. New posts appear in the queue after classification.`
-    : done === "backfill"
+    : done === "trending"
+      ? "Trending update started. Scores refresh in a minute or two."
+      : done === "backfill"
       ? `Backfill started (${doneCount} ${doneCount === 1 ? "source" : "sources"}). It runs over the next hours or days, within the AI spend cap.`
       : done === "reclassify"
         ? `${doneCount.toLocaleString()} posts are waiting for classification. At ~18 a minute this takes about ${minutes(Math.ceil(doneCount / 18))}.`
         : null;
 
-const [statuses, counts, progress, ops] = await Promise.all([
+const [statuses, counts, progress, ops, trending] = await Promise.all([
   sourceStatuses(env.DB),
   postCounts(env.DB),
   classifyProgress(env.DB),
   operations(env.DB),
+  trendingStatus(env.DB),
 ]);
 // Below one a minute, keep a decimal so a slow rate does not read as "~0".
 const rate = (perMinute: number) => (perMinute < 1 ? perMinute.toFixed(1) : String(Math.round(perMinute)));
@@ -270,6 +279,34 @@ const sourceLabel = (s: string) => (s === "all" ? "all sources" : (SOURCE_LABELS
               </li>
             ))}
           </ul>
+        </section>
+
+        <section class="mt-6">
+          <h2 class="text-lg font-semibold">Trending</h2>
+          <div class={`${card} mt-2 p-4`}>
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-semibold">Daily update</p>
+                <p class="mt-0.5 text-sm text-gray-600">
+                  {trending
+                    ? `Last run ${timeAgo(trending.started_at)} · ${trending.finished_at ? `${(trending.items_fetched ?? 0).toLocaleString()} tools scored` : "still running"}`
+                    : "No runs yet. Runs daily at 07:00 UTC."}
+                </p>
+                <p class="mt-1 text-xs text-gray-500">Refreshes upvotes and comments, GitHub stars, and every tool's trending score.</p>
+              </div>
+              <form method="post">
+                <input type="hidden" name="action" value="trending" />
+                <button type="submit" class={btnSecondary} aria-label="Run the trending update now">
+                  <Icon name="play" class="size-4 text-gray-500" /> Run
+                </button>
+              </form>
+            </div>
+            {trending?.error && (
+              <p class="mt-2 flex gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-sm break-words text-amber-800">
+                <Icon name="exclamation" class="mt-0.5 size-4 shrink-0" /> {trending.error}
+              </p>
+            )}
+          </div>
         </section>
 
         <section class="mt-6">
