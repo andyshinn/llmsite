@@ -108,7 +108,17 @@ async function text(item: Item): Promise<string> {
 
 // predicted: what production would do. Invalid model output counts as queued (true), as in
 // production; an API failure is null (the post would stay pending and be retried).
-type Row = Item & { predicted: boolean | null; invalid?: boolean; category?: string; confidence?: number; reason?: string; error?: string; ms: number };
+type Row = Item & {
+  predicted: boolean | null;
+  invalid?: boolean;
+  category?: string;
+  tags?: string[];
+  suggested_tags?: string[];
+  confidence?: number;
+  reason?: string;
+  error?: string;
+  ms: number;
+};
 const rows: Row[] = [];
 let next = 0;
 await Promise.all(
@@ -124,7 +134,7 @@ await Promise.all(
         const c = r.ok ? r.value : null;
         // Same routing as production: a tool needs a name or repo, roundups are dropped, invalid output is queued.
         const predicted = c ? c.is_ai_dev_tool && c.post_type !== "roundup" && Boolean(c.tool_name || c.github_repo) : true;
-        rows.push({ ...item, predicted, invalid: !r.ok, category: c?.category, confidence: c?.confidence, reason: c?.reason, error: r.ok ? undefined : r.error, ms: Date.now() - t0 });
+        rows.push({ ...item, predicted, invalid: !r.ok, category: c?.category, tags: c?.tags, suggested_tags: c?.suggested_tags, confidence: c?.confidence, reason: c?.reason, error: r.ok ? undefined : r.error, ms: Date.now() - t0 });
       } catch (err) {
         rows.push({ ...item, predicted: null, error: String(err), ms: Date.now() - t0 });
       }
