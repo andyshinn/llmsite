@@ -157,11 +157,17 @@ export async function loadFewShot(db: D1Database, limit: number, categories: rea
 }
 
 /**
+ * Most posts the daily cron re-enqueues: about what the $2/day AI Gateway cap
+ * buys at ~$0.0004 a post, so a capped backfill resumes at full speed each day.
+ */
+export const REQUEUE_LIMIT = 5000;
+
+/**
  * Re-enqueues posts still `pending` an hour after they were stored: their
  * classify job ran out of retries, for example while the AI Gateway spend
  * limit was blocking requests. Runs from the daily cron.
  */
-export async function requeueStalePending(db: D1Database, classifyQueue: Queue, limit = 2000): Promise<number> {
+export async function requeueStalePending(db: D1Database, classifyQueue: Queue, limit = REQUEUE_LIMIT): Promise<number> {
   const { results } = await db
     .prepare(
       "SELECT id FROM posts WHERE status = 'pending' AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') ORDER BY id LIMIT ?",
