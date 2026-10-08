@@ -7,6 +7,7 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, expect, it } from "vitest";
+import { requeueStalePending } from "../src/classify-job.ts";
 import { depsFromEnv } from "../src/deps.ts";
 import worker from "../src/index.ts";
 import { fakeQueue, resetDb } from "./helpers.ts";
@@ -78,4 +79,17 @@ it("ENABLED_SOURCES in core matches the ingest adapters", async () => {
   const { ENABLED_SOURCES } = await import("@radar/core");
   const { ADAPTERS } = await import("../src/sources/index.ts");
   expect([...ENABLED_SOURCES].sort()).toEqual(Object.keys(ADAPTERS).sort());
+});
+
+it("re-queues stale pending posts in batches of 100, up to the limit", async () => {
+  const rows = Array.from({ length: 250 }, (_, i) =>
+    env.DB.prepare(
+      "INSERT INTO posts (source, external_id, url, canonical_url, title, posted_at, created_at) VALUES ('hn', ?, 'https://x.dev', 'https://x.dev', 't', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+    ).bind(`p${i}`),
+  );
+  await env.DB.batch(rows);
+  const q = fakeQueue();
+  expect(await requeueStalePending(env.DB, q.queue, 220)).toBe(220);
+  expect(q.sent).toHaveLength(220);
+  expect(new Set(q.sent.map((j) => (j as { post_id: number }).post_id)).size).toBe(220);
 });
