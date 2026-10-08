@@ -69,8 +69,9 @@ Fields (write "reason" first):
 - category: one of:
 ${categoryLines}
   Choose by what the tool is for, using the most specific category that fits. "other" is only for in-scope tools that fit no other category, never for out-of-scope posts.
-- tags: up to 6 tags that the content clearly supports, chosen only from this list (an empty list is fine):
+- tags: up to 6 tags, chosen only from this list, for facts the content states about the tool (an empty list is fine). Tags describe a tool; they never make a post in scope.
 ${tagLines}
+  When a tool works with any coding agent or any model, use any-agent or any-model instead of listing several.
 - suggested_tags: up to 3 tags that are clearly important for this tool but missing from the list above (for example a coding agent that is not listed), lowercase with hyphens. Usually [].
 - is_open_source: true if the source code is publicly available under an open license.
 - description: one plain, factual line under 140 characters. No marketing language.
