@@ -1,13 +1,15 @@
 // Scores the classifier against the hand-labeled set in evals/classifier.
 //   pnpm --filter @radar/ingest eval:classifier -- [--model=@cf/zai-org/glm-5.3-flash] [--reasoning=low] [--limit=40]
 // The model and category list default to production's settings (read from D1), so the eval
-// matches what the Worker runs; pass --model or --categories=a,b,other to try something else.
+// matches what the Worker runs; pass --model, --categories=a,b,other or --tags=groups.json
+// (the `tags` setting's JSON) to try something else.
 // Credentials: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID, or a local `wrangler login`.
 // Calls go through the "radar" AI Gateway, so the daily spend cap applies to evals too.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { tagGroupsSchema } from "@radar/core";
 import { classifyPost } from "../src/classifier.ts";
 import { getArticleText } from "../src/content.ts";
 import type { Deps, RunModel } from "../src/deps.ts";
@@ -19,6 +21,7 @@ const { values: args } = parseArgs({
   options: {
     model: { type: "string" },
     categories: { type: "string" },
+    tags: { type: "string" },
     reasoning: { type: "string" },
     set: { type: "string", default: "evals/classifier/labeled-2026-10.jsonl" },
     limit: { type: "string" },
@@ -57,6 +60,7 @@ async function productionSetting(key: string): Promise<unknown> {
 }
 const model = args.model ?? String(await productionSetting("model_id"));
 const categories = args.categories ? args.categories.split(",").map((c) => c.trim()) : ((await productionSetting("categories")) as string[]);
+const tags = tagGroupsSchema.parse(args.tags ? JSON.parse(readFileSync(resolve(args.tags), "utf8")) : await productionSetting("tags"));
 
 let neurons = 0;
 // Shared pacing across workers: request starts are spaced 60s / rpm apart.
@@ -114,7 +118,7 @@ await Promise.all(
       const t0 = Date.now();
       try {
         const r = await classifyPost(
-          { model, categories, post: item, text: await text(item), fewShot: [], reasoningEffort: args.reasoning },
+          { model, categories, tags, post: item, text: await text(item), fewShot: [], reasoningEffort: args.reasoning },
           ai,
         );
         const c = r.ok ? r.value : null;

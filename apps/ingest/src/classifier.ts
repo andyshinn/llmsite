@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Classification, classificationJsonSchema, classificationSchema } from "@radar/core";
+import { type Classification, type TagGroups, classificationJsonSchema, classificationSchema, tagSlugs } from "@radar/core";
 import type { RunModel } from "./deps.ts";
 
 export interface PostInput {
@@ -34,8 +34,11 @@ const CATEGORY_HINTS: Record<string, string> = {
   other: "an in-scope tool that fits none of the other categories",
 };
 
-export function systemPrompt(categories: readonly string[]): string {
+export function systemPrompt(categories: readonly string[], tags: TagGroups): string {
   const categoryLines = categories.map((c) => `  - ${c}${CATEGORY_HINTS[c] ? `: ${CATEGORY_HINTS[c]}` : ""}`).join("\n");
+  const tagLines = tags
+    .map((g) => `  - ${g.label}${g.hint ? ` (${g.hint})` : ""}: ${g.tags.map((t) => (t.label.toLowerCase() === t.slug ? t.slug : `${t.slug} (${t.label})`)).join(", ")}`)
+    .join("\n");
   return `You classify posts from developer communities for a public directory of AI coding tools.
 
 Decide whether the post is mainly about ONE specific product or project that is an AI coding tool. Set is_ai_dev_tool to true only if all three hold:
@@ -66,7 +69,9 @@ Fields (write "reason" first):
 - category: one of:
 ${categoryLines}
   Choose by what the tool is for, using the most specific category that fits. "other" is only for in-scope tools that fit no other category, never for out-of-scope posts.
-- tags: up to 5 short lowercase tags (languages, editors, model providers, platforms).
+- tags: up to 6 tags that the content clearly supports, chosen only from this list (an empty list is fine):
+${tagLines}
+- suggested_tags: up to 3 tags that are clearly important for this tool but missing from the list above (for example a coding agent that is not listed), lowercase with hyphens. Usually [].
 - is_open_source: true if the source code is publicly available under an open license.
 - description: one plain, factual line under 140 characters. No marketing language.
 - confidence: from 0 to 1, how sure you are about is_ai_dev_tool, post_type and the tool's identity. Use 0.9 or more only when the content states plainly what the tool does and who it is for; 0.5 to 0.8 when you are inferring; below 0.5 when you are guessing.
@@ -80,11 +85,11 @@ export function userPrompt(post: PostInput, text: string): string {
 
 /**
  * Identifies the classifier setup a result came from: model, reasoning effort, and the
- * system prompt (which embeds the categories). Few-shot examples are left out on purpose:
+ * system prompt (which embeds the categories and tag vocabulary). Few-shot examples are left out on purpose:
  * they change with every review, and would stop duplicate-URL reuse almost entirely.
  */
-export async function classifierFingerprint(model: string, reasoningEffort: string, categories: readonly string[]): Promise<string> {
-  const data = new TextEncoder().encode(JSON.stringify([model, reasoningEffort, systemPrompt(categories)]));
+export async function classifierFingerprint(model: string, reasoningEffort: string, categories: readonly string[], tags: TagGroups): Promise<string> {
+  const data = new TextEncoder().encode(JSON.stringify([model, reasoningEffort, systemPrompt(categories, tags)]));
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
   return [...hash.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -104,6 +109,7 @@ export async function classifyPost(
   input: {
     model: string;
     categories: readonly string[];
+    tags: TagGroups;
     post: PostInput;
     text: string;
     fewShot: FewShotExample[];
@@ -113,17 +119,18 @@ export async function classifyPost(
   ai: RunModel,
 ): Promise<ClassifyResult> {
   const messages = [
-    { role: "system", content: systemPrompt(input.categories) },
+    { role: "system", content: systemPrompt(input.categories, input.tags) },
     ...input.fewShot.flatMap((ex) => [
       { role: "user", content: userPrompt(ex.post, "(omitted in example)") },
       { role: "assistant", content: JSON.stringify(ex.output) },
     ]),
     { role: "user", content: userPrompt(input.post, input.text) },
   ];
-  const schema = classificationSchema(input.categories);
+  const vocabulary = tagSlugs(input.tags);
+  const schema = classificationSchema(input.categories, vocabulary);
   const request = {
     messages,
-    response_format: { type: "json_schema", json_schema: classificationJsonSchema(input.categories) },
+    response_format: { type: "json_schema", json_schema: classificationJsonSchema(input.categories, vocabulary) },
     // Reasoning models spend part of this on thinking before the JSON.
     max_tokens: 1500,
     temperature: 0,
