@@ -22,7 +22,7 @@ const CATEGORY_HINTS: Record<string, string> = {
   "agent-addon":
     "add-ons installed into a coding agent (Claude Code, Codex, Cursor and similar): plugins, skills, hooks, mods, status lines, rule and prompt packs; security add-ons are agent-security",
   "agent-tools":
-    "tools that run alongside coding agents to manage them: running agents in parallel, dashboards and monitoring, usage and cost tracking, remote control, sandboxes and isolated environments, model routing; security tools are agent-security",
+    "tools made for coding agents that run alongside them: running agents in parallel, dashboards and monitoring, usage and cost tracking, remote control, sandboxes for coding agents; security tools are agent-security",
   "agent-security":
     "tools that keep coding agents safe: guardrails and policy gates, blocking dangerous commands, catching leaked secrets, audit trails of what an agent did, pinning MCP tools",
   "review-testing": "AI code review, test generation, and checking AI-written code",

@@ -14,7 +14,7 @@ A public website that discovers new AI coding tools daily from developer communi
 | --- | --- |
 | `agent` | Coding agents that plan and make changes on their own |
 | `agent-addon` | Add-ons installed into a coding agent: plugins, skills, hooks, mods, status lines, rule and prompt packs |
-| `agent-tools` | Tools that run alongside coding agents: running agents in parallel, dashboards, usage and cost tracking, remote control, sandboxes, model routing |
+| `agent-tools` | Tools made for coding agents that run alongside them: running agents in parallel, dashboards, usage and cost tracking, remote control, sandboxes for coding agents |
 | `agent-security` | Keeping coding agents safe: guardrails, blocking dangerous commands, catching leaked secrets, audit trails, pinning MCP tools |
 | `review-testing` | AI code review, test generation, and checking AI-written code |
 | `memory-context` | Memory for coding agents, codebase docs or indexes made for agents, keeping an agent's context small |
