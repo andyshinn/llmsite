@@ -3,7 +3,15 @@ import type { FetchJob, Source } from "./jobs.ts";
 /** Sources that have an adapter in the ingest Worker (a test there keeps this in sync). */
 export const ENABLED_SOURCES = ["hn", "lobsters", "github"] as const satisfies readonly Source[];
 
+/** Sources whose backfill fans out into one fetch job per day (the rest run as one job). */
+export const WINDOWED_SOURCES = ["hn", "github"] as const satisfies readonly Source[];
+
 const DAY = 86_400_000;
+
+/** How many fetch runs a backfill of `days` days produces (the ingest Worker fans out windowed sources over 2 days). */
+export function backfillRunCount(sources: readonly Source[], days: number): number {
+  return sources.reduce((n, s) => n + ((WINDOWED_SOURCES as readonly string[]).includes(s) && days > 2 ? days : 1), 0);
+}
 
 /** Fetch jobs for a "run now" (mode manual) or a backfill of `days` days, one per source. */
 export function fetchJobs(sources: readonly Source[], mode: "manual" | "backfill", options: { days?: number; now?: number } = {}): FetchJob[] {
@@ -30,7 +38,7 @@ const ORPHAN_TOOL = `t.status = 'queued'
 export const RESET_UNREVIEWED_QUEUED_SQL = [
   `UPDATE posts
   SET status = 'pending', classification = NULL, confidence = NULL, raw_output = NULL,
-      tool_id = NULL, post_type = NULL, version = NULL
+      tool_id = NULL, post_type = NULL, version = NULL, classified_at = NULL
   WHERE status = 'queued' AND id NOT IN (SELECT post_id FROM review_decisions)`,
   `DELETE FROM tool_aliases WHERE tool_id IN (SELECT t.id FROM tools t WHERE ${ORPHAN_TOOL})`,
   `DELETE FROM tools WHERE id IN (SELECT t.id FROM tools t WHERE ${ORPHAN_TOOL})`,

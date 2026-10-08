@@ -1,6 +1,16 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { backfillEstimate, postCounts, reclassifyPreview, reclassifyQueued, runNow, sourceStatuses, startBackfill } from "../src/lib/ops.ts";
+import {
+  backfillEstimate,
+  classifyProgress,
+  operations,
+  postCounts,
+  reclassifyPreview,
+  reclassifyQueued,
+  runNow,
+  sourceStatuses,
+  startBackfill,
+} from "../src/lib/ops.ts";
 
 const db = env.DB;
 function fakeQueue() {
@@ -10,7 +20,7 @@ function fakeQueue() {
 }
 
 beforeEach(async () => {
-  await db.batch(["review_decisions", "tool_aliases", "posts", "tools", "source_runs"].map((t) => db.prepare(`DELETE FROM ${t}`)));
+  await db.batch(["review_decisions", "tool_aliases", "posts", "tools", "source_runs", "operations"].map((t) => db.prepare(`DELETE FROM ${t}`)));
 });
 
 describe("run now and backfill", () => {
@@ -31,10 +41,13 @@ describe("run now and backfill", () => {
   it("enqueues backfill jobs covering the last N days", async () => {
     const q = fakeQueue();
     const now = Date.parse("2026-10-07T00:00:00Z");
-    await startBackfill(q.queue, "hn", 7, now);
+    await startBackfill(db, q.queue, "hn", 7, now);
     expect(q.sent).toEqual([{ kind: "fetch", source: "hn", mode: "backfill", since: "2026-09-30T00:00:00.000Z", until: "2026-10-07T00:00:00.000Z" }]);
-    await expect(startBackfill(q.queue, "hn", 0)).rejects.toThrow("Days must be");
-    await expect(startBackfill(q.queue, "hn", 9999)).rejects.toThrow("Days must be");
+    await expect(startBackfill(db, q.queue, "hn", 0)).rejects.toThrow("Days must be");
+    await expect(startBackfill(db, q.queue, "hn", 9999)).rejects.toThrow("Days must be");
+    expect(await db.prepare("SELECT kind, source, days, total FROM operations").all().then((r) => r.results)).toEqual([
+      { kind: "backfill", source: "hn", days: 7, total: 7 },
+    ]);
   });
 
   it("estimates backfill size and cost", () => {
@@ -112,5 +125,116 @@ describe("sourceStatuses", () => {
     const hn = (await sourceStatuses(db)).find((x) => x.source === "hn")!;
     expect(hn.last).toMatchObject({ finished_at: null, items_fetched: null });
     expect(hn).toMatchObject({ weekAverage: 1100, dropWarning: false });
+  });
+});
+
+describe("progress", () => {
+  const T0 = Date.parse("2026-10-07T12:00:00Z");
+  const at = (minutes: number) => new Date(T0 + minutes * 60_000).toISOString();
+  let next = 100;
+  const post = (status: string, createdAt: string, classifiedAt: string | null = null, source = "hn") =>
+    db
+      .prepare(
+        "INSERT INTO posts (id, source, external_id, url, canonical_url, title, posted_at, status, created_at, classified_at) VALUES (?, ?, ?, 'u', 'u', 't', ?, ?, ?, ?)",
+      )
+      .bind(++next, source, String(next), createdAt, status, createdAt, classifiedAt);
+  const backfillRun = (source: string, startedAt: string, error: string | null = null) =>
+    db
+      .prepare("INSERT INTO source_runs (source, mode, started_at, finished_at, items_fetched, error) VALUES (?, 'backfill', ?, ?, 10, ?)")
+      .bind(source, startedAt, startedAt, error);
+
+  it("stamps classified_at when a post leaves pending", async () => {
+    await db.batch([post("pending", at(-60))]);
+    await db.prepare("UPDATE posts SET status = 'queued' WHERE id = ?").bind(next).run();
+    const row = await db.prepare("SELECT classified_at FROM posts WHERE id = ?").bind(next).first<{ classified_at: string | null }>();
+    expect(row!.classified_at).not.toBeNull();
+  });
+
+  it("reports the classification rate, an ETA and a stall", async () => {
+    await db.batch([
+      ...Array.from({ length: 30 }, () => post("queued", at(-60), at(-5))),
+      ...Array.from({ length: 60 }, () => post("pending", at(-60))),
+    ]);
+    expect(await classifyProgress(db, T0)).toEqual({ pending: 60, perMinute: 2, etaMinutes: 30, stalled: false });
+    // An hour later nothing has moved: stalled, no ETA.
+    expect(await classifyProgress(db, T0 + 60 * 60_000)).toMatchObject({ pending: 60, perMinute: 0, etaMinutes: null, stalled: true });
+  });
+
+  it("does not count a re-classified post as throughput", async () => {
+    await db.batch([post("queued", at(-60), at(-5))]);
+    await reclassifyQueued(db, fakeQueue().queue, T0);
+    const row = await db.prepare("SELECT status, classified_at FROM posts WHERE id = ?").bind(next).first();
+    expect(row).toEqual({ status: "pending", classified_at: null });
+    expect(await classifyProgress(db, T0)).toMatchObject({ pending: 1, perMinute: 0 });
+  });
+
+  it("does not call fresh pending posts stalled", async () => {
+    await db.batch([post("pending", at(-1))]);
+    expect((await classifyProgress(db, T0)).stalled).toBe(false);
+  });
+
+  it("tracks a re-classify until its posts are classified", async () => {
+    await db.batch([post("queued", at(-600)), post("queued", at(-600))]);
+    const q = fakeQueue();
+    await reclassifyQueued(db, q.queue, T0);
+    await db.batch([post("pending", at(1))]); // a newer post is not part of it
+
+    let [op] = await operations(db, T0 + 60_000);
+    expect(op).toMatchObject({ kind: "reclassify", finished_at: null, fetch: null, classify: { done: 0, total: 2 } });
+
+    await db.prepare("UPDATE posts SET status = 'dropped' WHERE id <= ?").bind(next - 1).run();
+    [op] = await operations(db, T0 + 120_000);
+    expect(op).toMatchObject({ classify: { done: 2, total: 2 }, finished_at: at(2) });
+    // A later re-classify of the same posts does not make it look unfinished.
+    await db.prepare("UPDATE posts SET status = 'pending' WHERE id <= ?").bind(next - 1).run();
+    [op] = await operations(db, T0 + 180_000);
+    expect(op).toMatchObject({ classify: { done: 2, total: 2 }, finished_at: at(2) });
+    // Finished operations drop off after a day.
+    expect(await operations(db, T0 + 2 * 1440 * 60_000)).toEqual([]);
+  });
+
+  it("lists unfinished operations ahead of finished ones", async () => {
+    await db.prepare("INSERT INTO operations (kind, total, last_post_id, started_at) VALUES ('reclassify', 1, 0, ?)").bind(at(-30)).run();
+    await db.batch(
+      Array.from({ length: 6 }, (_, i) =>
+        db.prepare("INSERT INTO operations (kind, total, last_post_id, started_at, finished_at) VALUES ('reclassify', 1, 0, ?, ?)").bind(at(-20 + i), at(-10)),
+      ),
+    );
+    await db.batch([post("pending", at(-60))]);
+    await db.prepare("UPDATE operations SET last_post_id = ? WHERE finished_at IS NULL").bind(next).run();
+    const ops = await operations(db, T0);
+    expect(ops).toHaveLength(5);
+    expect(ops[0]).toMatchObject({ finished_at: null, started_at: at(-30) });
+  });
+
+  it("tracks a backfill's fetch runs and the posts they stored", async () => {
+    const q = fakeQueue();
+    await startBackfill(db, q.queue, "all", 3, T0); // hn 3 + github 3 + lobsters 1
+    await db.batch([
+      backfillRun("hn", at(1)),
+      backfillRun("hn", at(2), "Algolia -> 500"),
+      backfillRun("github", at(3)),
+      backfillRun("hn", at(-5)), // before the backfill
+      post("pending", at(2)),
+      post("dropped", at(2), at(4)),
+      post("queued", at(-30), at(-20)), // before the backfill
+    ]);
+
+    let [op] = await operations(db, T0 + 10 * 60_000);
+    expect(op).toMatchObject({
+      kind: "backfill", source: "all", days: 3, finished_at: null,
+      fetch: { done: 2, failed: 1, total: 7, settled: false }, classify: { done: 1, total: 2 },
+    });
+
+    // An hour with no new fetch runs: fetching is over even though days failed; done once posts are classified.
+    await db.prepare("UPDATE posts SET status = 'queued' WHERE status = 'pending'").run();
+    [op] = await operations(db, T0 + 90 * 60_000);
+    expect(op!.fetch).toMatchObject({ done: 2, settled: true });
+    expect(op!.finished_at).not.toBeNull();
+
+    // Posts and runs after it finished are not counted.
+    await db.batch([post("pending", at(200)), backfillRun("hn", at(200))]);
+    [op] = await operations(db, T0 + 210 * 60_000);
+    expect(op).toMatchObject({ fetch: { done: 2 }, classify: { done: 2, total: 2 } });
   });
 });

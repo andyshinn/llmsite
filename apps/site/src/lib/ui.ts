@@ -20,6 +20,14 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/** A rough duration for ETAs: "about 40 minutes", "about 3 hours", "about 2 days". */
+export function aboutDuration(minutes: number): string {
+  const plural = (n: number, unit: string) => `about ${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (minutes < 90) return plural(Math.max(1, Math.round(minutes)), "minute");
+  if (minutes < 36 * 60) return plural(Math.round(minutes / 60), "hour");
+  return plural(Math.round(minutes / 1440), "day");
+}
+
 export function hostname(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");

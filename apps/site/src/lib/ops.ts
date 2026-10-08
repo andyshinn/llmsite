@@ -4,6 +4,7 @@ import {
   type FetchJob,
   RESET_PREVIEW_SQL,
   type Source,
+  backfillRunCount,
   fetchJobs,
   resetUnreviewedQueued,
 } from "@radar/core";
@@ -29,6 +30,9 @@ export interface SourceStatus {
   /** The latest finished daily or manual run fetched less than half the weekly average. */
   dropWarning: boolean;
 }
+
+const MINUTE = 60_000;
+const iso = (ms: number) => new Date(ms).toISOString();
 
 async function sendAll<T>(queue: Queue, bodies: T[]): Promise<void> {
   for (let i = 0; i < bodies.length; i += 100) {
@@ -89,10 +93,16 @@ export async function runNow(fetchQueue: Queue, choice: string): Promise<FetchJo
 
 export const MAX_BACKFILL_DAYS = 180;
 
-export async function startBackfill(fetchQueue: Queue, choice: string, days: number, now = Date.now()): Promise<FetchJob[]> {
+/** Enqueues a backfill and records it in `operations` so the status panel can show its progress. */
+export async function startBackfill(db: D1Database, fetchQueue: Queue, choice: string, days: number, now = Date.now()): Promise<FetchJob[]> {
   if (!Number.isInteger(days) || days < 1 || days > MAX_BACKFILL_DAYS) throw new Error(`Days must be a whole number from 1 to ${MAX_BACKFILL_DAYS}.`);
-  const jobs = fetchJobs(sourcesFor(choice), "backfill", { days, now });
+  const sources = sourcesFor(choice);
+  const jobs = fetchJobs(sources, "backfill", { days, now });
   await sendAll(fetchQueue, jobs);
+  await db
+    .prepare("INSERT INTO operations (kind, source, days, total, started_at) VALUES ('backfill', ?, ?, ?, ?)")
+    .bind(choice, days, backfillRunCount(sources, days), iso(now))
+    .run();
   return jobs;
 }
 
@@ -101,11 +111,144 @@ export async function reclassifyPreview(db: D1Database): Promise<{ posts: number
 }
 
 /** Resets unreviewed queued posts and enqueues every pending post for classification. */
-export async function reclassifyQueued(db: D1Database, classifyQueue: Queue): Promise<number> {
+export async function reclassifyQueued(db: D1Database, classifyQueue: Queue, now = Date.now()): Promise<number> {
   const ids = await resetUnreviewedQueued(db);
   // Forced: re-run the model even when a same-URL post already has a result.
   await sendAll<ClassifyJob>(classifyQueue, ids.map((post_id) => ({ kind: "classify", post_id, force: true })));
+  if (ids.length > 0) {
+    await db
+      .prepare("INSERT INTO operations (kind, total, last_post_id, started_at) VALUES ('reclassify', ?, ?, ?)")
+      .bind(ids.length, Math.max(...ids), iso(now))
+      .run();
+  }
   return ids.length;
+}
+
+/** Classification rate is measured over this window. */
+const RATE_WINDOW_MIN = 15;
+/** A backfill's fetching is over once no fetch run has started for this long (failed days are not retried forever). */
+const FETCH_QUIET_MIN = 60;
+
+export interface ClassifyProgress {
+  pending: number;
+  /** Posts classified per minute over the last 15 minutes. */
+  perMinute: number;
+  /** Minutes until nothing is pending at the current rate, or null when nothing is moving. */
+  etaMinutes: number | null;
+  /** Posts are waiting but none was classified in 15 minutes (usually the daily AI spend cap). */
+  stalled: boolean;
+}
+
+export async function classifyProgress(db: D1Database, now = Date.now()): Promise<ClassifyProgress> {
+  const since = iso(now - RATE_WINDOW_MIN * MINUTE);
+  const r = await db
+    .prepare(
+      `SELECT
+         (SELECT count(*) FROM posts WHERE status = 'pending') AS pending,
+         (SELECT count(*) FROM posts WHERE classified_at >= ?1 AND status != 'pending') AS recent,
+         (SELECT min(created_at) FROM posts WHERE status = 'pending') AS oldest`,
+    )
+    .bind(since)
+    .first<{ pending: number; recent: number; oldest: string | null }>();
+  const pending = r?.pending ?? 0;
+  const perMinute = (r?.recent ?? 0) / RATE_WINDOW_MIN;
+  return {
+    pending,
+    perMinute,
+    etaMinutes: pending > 0 && perMinute > 0 ? Math.ceil(pending / perMinute) : null,
+    stalled: pending > 0 && perMinute === 0 && r?.oldest != null && r.oldest < since,
+  };
+}
+
+export interface Operation {
+  id: number;
+  kind: "backfill" | "reclassify";
+  source: string | null;
+  days: number | null;
+  started_at: string;
+  finished_at: string | null;
+  /** Backfill only: fetch runs that succeeded, failed attempts (retried automatically), and runs expected. */
+  fetch: { done: number; failed: number; total: number; settled: boolean } | null;
+  /** Posts classified out of the posts this operation is waiting on. */
+  classify: { done: number; total: number };
+}
+
+interface OperationRow {
+  id: number;
+  kind: "backfill" | "reclassify";
+  source: string | null;
+  days: number | null;
+  total: number;
+  last_post_id: number | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/**
+ * Operations still running, plus those finished in the last day. Progress is derived
+ * from posts and source_runs; an operation is marked finished the first time this
+ * sees it complete. Overlapping backfills share the same runs and posts, so their
+ * numbers are approximate.
+ */
+export async function operations(db: D1Database, now = Date.now()): Promise<Operation[]> {
+  const { results } = await db
+    .prepare(// Unfinished first, so a run of finished ones never hides an active one.
+      "SELECT * FROM operations WHERE finished_at IS NULL OR finished_at >= ? ORDER BY finished_at IS NULL DESC, id DESC LIMIT 5")
+    .bind(iso(now - 1440 * MINUTE))
+    .all<OperationRow>();
+  return Promise.all(results.map((op) => (op.kind === "backfill" ? backfillProgress(db, op, now) : reclassifyProgress(db, op, now))));
+}
+
+async function reclassifyProgress(db: D1Database, op: OperationRow, now: number): Promise<Operation> {
+  const r = await db
+    .prepare("SELECT count(*) AS n FROM posts WHERE status = 'pending' AND id <= ?")
+    .bind(op.last_post_id ?? 0)
+    .first<{ n: number }>();
+  const done = Math.max(0, op.total - (r?.n ?? 0));
+  const finished_at = op.finished_at ?? (done >= op.total ? await finish(db, op.id, now) : null);
+  // Once finished it stays complete, even if a later re-classify resets the same posts.
+  return { ...pick(op), finished_at, fetch: null, classify: { done: finished_at ? op.total : done, total: op.total } };
+}
+
+async function backfillProgress(db: D1Database, op: OperationRow, now: number): Promise<Operation> {
+  const sourceFilter = op.source && op.source !== "all" ? op.source : null;
+  // A finished backfill only counts what happened while it ran.
+  const until = op.finished_at;
+  const runs = await db
+    .prepare(
+      `SELECT
+         count(CASE WHEN finished_at IS NOT NULL AND error IS NULL THEN 1 END) AS done,
+         count(CASE WHEN error IS NOT NULL THEN 1 END) AS failed,
+         max(started_at) AS last_started
+       FROM source_runs
+       WHERE mode = 'backfill' AND started_at >= ?1 AND (?2 IS NULL OR source = ?2) AND (?3 IS NULL OR started_at < ?3)`,
+    )
+    .bind(op.started_at, sourceFilter, until)
+    .first<{ done: number; failed: number; last_started: string | null }>();
+  const posts = await db
+    .prepare(
+      `SELECT count(*) AS total, count(CASE WHEN status != 'pending' THEN 1 END) AS done
+       FROM posts WHERE created_at >= ?1 AND (?2 IS NULL OR source = ?2) AND (?3 IS NULL OR created_at < ?3)`,
+    )
+    .bind(op.started_at, sourceFilter, until)
+    .first<{ total: number; done: number }>();
+  const done = Math.min(runs?.done ?? 0, op.total);
+  const quietSince = iso(now - FETCH_QUIET_MIN * MINUTE);
+  const settled = done >= op.total || (runs?.last_started ?? op.started_at) < quietSince;
+  const classify = { done: posts?.done ?? 0, total: posts?.total ?? 0 };
+  const complete = settled && classify.done >= classify.total;
+  const finished_at = op.finished_at ?? (complete ? await finish(db, op.id, now) : null);
+  // Stays complete even if a later re-classify sends some of its posts back to pending.
+  if (finished_at) classify.done = classify.total;
+  return { ...pick(op), finished_at, fetch: { done, failed: runs?.failed ?? 0, total: op.total, settled: settled || !!finished_at }, classify };
+}
+
+const pick = (op: OperationRow) => ({ id: op.id, kind: op.kind, source: op.source, days: op.days, started_at: op.started_at });
+
+async function finish(db: D1Database, id: number, now: number): Promise<string> {
+  const at = iso(now);
+  await db.prepare("UPDATE operations SET finished_at = ? WHERE id = ? AND finished_at IS NULL").bind(at, id).run();
+  return at;
 }
 
 // Rough planning numbers shown before a backfill, from October 2026 measurements:

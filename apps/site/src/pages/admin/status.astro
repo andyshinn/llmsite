@@ -3,10 +3,13 @@ import { env } from "cloudflare:workers";
 import { ENABLED_SOURCES } from "@radar/core";
 import Icon from "../../components/Icon.astro";
 import Notice from "../../components/Notice.astro";
+import Progress from "../../components/Progress.astro";
 import Admin from "../../layouts/Admin.astro";
 import {
   MAX_BACKFILL_DAYS,
   backfillEstimate,
+  classifyProgress,
+  operations,
   postCounts,
   reclassifyPreview,
   reclassifyQueued,
@@ -14,7 +17,7 @@ import {
   sourceStatuses,
   startBackfill,
 } from "../../lib/ops.ts";
-import { SOURCE_LABELS, btnPrimary, btnSecondary, card, input, label, timeAgo } from "../../lib/ui.ts";
+import { SOURCE_LABELS, aboutDuration, btnPrimary, btnSecondary, card, input, label, timeAgo } from "../../lib/ui.ts";
 
 type Confirm =
   | { kind: "backfill"; source: string; days: number; estimate: ReturnType<typeof backfillEstimate> }
@@ -39,7 +42,7 @@ if (Astro.request.method === "POST") {
         if (!Number.isInteger(days) || days < 1 || days > MAX_BACKFILL_DAYS) throw new Error(`Days must be a whole number from 1 to ${MAX_BACKFILL_DAYS}.`);
         confirm = { kind: "backfill", source, days, estimate: backfillEstimate(source, days) };
       } else {
-        const jobs = await startBackfill(env.FETCH_QUEUE, source, days);
+        const jobs = await startBackfill(env.DB, env.FETCH_QUEUE, source, days);
         return Astro.redirect(`/admin/status?done=backfill&n=${jobs.length}`, 303);
       }
     }
@@ -69,7 +72,16 @@ const doneMessage =
         ? `${doneCount.toLocaleString()} posts are waiting for classification. At ~18 a minute this takes about ${minutes(Math.ceil(doneCount / 18))}.`
         : null;
 
-const [statuses, counts] = await Promise.all([sourceStatuses(env.DB), postCounts(env.DB)]);
+const [statuses, counts, progress, ops] = await Promise.all([
+  sourceStatuses(env.DB),
+  postCounts(env.DB),
+  classifyProgress(env.DB),
+  operations(env.DB),
+]);
+// Below one a minute, keep a decimal so a slow rate does not read as "~0".
+const rate = (perMinute: number) => (perMinute < 1 ? perMinute.toFixed(1) : String(Math.round(perMinute)));
+const eta = (remaining: number) =>
+  remaining > 0 && progress.perMinute > 0 ? `${aboutDuration(remaining / progress.perMinute)} left` : undefined;
 const countRows = [
   ["pending", "Waiting to classify"],
   ["queued", "Waiting for review"],
@@ -125,8 +137,73 @@ const sourceLabel = (s: string) => (s === "all" ? "all sources" : (SOURCE_LABELS
       </section>
     ) : (
       <>
+        <h1 class="sr-only">Status</h1>
+        {(progress.pending > 0 || ops.length > 0) && (
+          <section class="mb-6">
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-semibold">In progress</h2>
+              <a href="/admin/status" class={btnSecondary}>
+                <Icon name="arrowPath" class="size-4 text-gray-500" /> Refresh
+              </a>
+            </div>
+            {progress.pending > 0 && (
+              <div class={`${card} mt-2 p-4`}>
+                <p class="font-semibold">Classifying</p>
+                <p class="mt-0.5 text-sm text-gray-600">
+                  {progress.pending.toLocaleString()} waiting
+                  {progress.perMinute > 0 && ` · ~${rate(progress.perMinute)} a minute`}
+                  {progress.etaMinutes !== null && ` · ${aboutDuration(progress.etaMinutes)} left`}
+                </p>
+                {progress.stalled && (
+                  <p class="mt-2 flex gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-sm text-amber-800">
+                    <Icon name="exclamation" class="mt-0.5 size-4 shrink-0" /> Nothing classified in 15 minutes. Usually the daily AI spend cap: waiting posts are retried after the 06:00 UTC daily run.
+                  </p>
+                )}
+              </div>
+            )}
+            <ul class="mt-2 space-y-2">
+              {ops.map((op) => (
+                <li class={`${card} p-4`}>
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="font-semibold">
+                      {op.kind === "backfill" ? `Backfill: ${op.days} days of ${sourceLabel(op.source ?? "all")}` : "Re-classify"}
+                    </p>
+                    {op.finished_at ? (
+                      <span class="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/20 ring-inset">
+                        <Icon name="check" class="size-3.5" /> Done {timeAgo(op.finished_at)}
+                      </span>
+                    ) : (
+                      <span class="shrink-0 text-xs text-gray-500">Started {timeAgo(op.started_at)}</span>
+                    )}
+                  </div>
+                  {op.fetch && (
+                    <Progress
+                      label="Fetching"
+                      done={op.fetch.done}
+                      total={op.fetch.total}
+                      detail={
+                        op.fetch.settled && op.fetch.done < op.fetch.total
+                          ? `${op.fetch.total - op.fetch.done} could not be fetched. Start the same backfill again to retry them; posts already stored are skipped.`
+                          : op.fetch.failed > 0
+                            ? `${op.fetch.failed} failed ${op.fetch.failed === 1 ? "attempt" : "attempts"}, retried automatically.`
+                            : undefined
+                      }
+                    />
+                  )}
+                  <Progress
+                    label={op.kind === "backfill" ? "Classifying posts found" : "Classifying"}
+                    done={op.classify.done}
+                    total={op.classify.total}
+                    detail={op.finished_at ? undefined : eta(op.classify.total - op.classify.done)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section>
-          <h1 class="text-lg font-semibold">Posts</h1>
+          <h2 class="text-lg font-semibold">Posts</h2>
           <dl class={`${card} mt-2 divide-y divide-gray-100 text-sm`}>
             {countRows.map(([status, text]) => (
               <div class="flex justify-between px-4 py-2.5">

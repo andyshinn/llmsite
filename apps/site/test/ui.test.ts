@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { githubHref, safeHref } from "../src/lib/ui.ts";
+import { aboutDuration, githubHref, safeHref } from "../src/lib/ui.ts";
 
 describe("link helpers", () => {
   it("links http(s) homepages only", () => {
@@ -14,5 +14,14 @@ describe("link helpers", () => {
     expect(githubHref("acme/patch work")).toBeNull();
     expect(githubHref("https://evil.example/x")).toBeNull();
     expect(githubHref(null)).toBeNull();
+  });
+});
+
+describe("aboutDuration", () => {
+  it("rounds to minutes, hours or days", () => {
+    expect(aboutDuration(0.2)).toBe("about 1 minute");
+    expect(aboutDuration(45)).toBe("about 45 minutes");
+    expect(aboutDuration(150)).toBe("about 3 hours");
+    expect(aboutDuration(5 * 1440)).toBe("about 5 days");
   });
 });
