@@ -132,7 +132,7 @@ const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** Today's repo_snapshots row for each active, visible tool with a GitHub repo. */
 async function snapshotRepos(deps: Deps, today: string, warnings: string[]): Promise<number> {
   const { results } = await deps.db
-    .prepare("SELECT id, github_repo FROM tools WHERE github_repo IS NOT NULL AND status != 'hidden' AND is_active = 1 ORDER BY trending_score DESC")
+    .prepare("SELECT id, github_repo FROM tools WHERE github_repo IS NOT NULL AND status != 'hidden' AND is_active = 1 ORDER BY trending_score DESC, id")
     .all<{ id: number; github_repo: string }>();
   const tools = results.filter((t) => REPO.test(t.github_repo));
   const stats = new Map<number, RepoStats>();
