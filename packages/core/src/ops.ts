@@ -38,7 +38,7 @@ const ORPHAN_TOOL = `t.status = 'queued'
 export const RESET_UNREVIEWED_QUEUED_SQL = [
   `UPDATE posts
   SET status = 'pending', classification = NULL, confidence = NULL, raw_output = NULL,
-      tool_id = NULL, post_type = NULL, version = NULL
+      tool_id = NULL, post_type = NULL, version = NULL, classified_at = NULL
   WHERE status = 'queued' AND id NOT IN (SELECT post_id FROM review_decisions)`,
   `DELETE FROM tool_aliases WHERE tool_id IN (SELECT t.id FROM tools t WHERE ${ORPHAN_TOOL})`,
   `DELETE FROM tools WHERE id IN (SELECT t.id FROM tools t WHERE ${ORPHAN_TOOL})`,

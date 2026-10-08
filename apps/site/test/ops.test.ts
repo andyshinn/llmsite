@@ -160,6 +160,14 @@ describe("progress", () => {
     expect(await classifyProgress(db, T0 + 60 * 60_000)).toMatchObject({ pending: 60, perMinute: 0, etaMinutes: null, stalled: true });
   });
 
+  it("does not count a re-classified post as throughput", async () => {
+    await db.batch([post("queued", at(-60), at(-5))]);
+    await reclassifyQueued(db, fakeQueue().queue, T0);
+    const row = await db.prepare("SELECT status, classified_at FROM posts WHERE id = ?").bind(next).first();
+    expect(row).toEqual({ status: "pending", classified_at: null });
+    expect(await classifyProgress(db, T0)).toMatchObject({ pending: 1, perMinute: 0 });
+  });
+
   it("does not call fresh pending posts stalled", async () => {
     await db.batch([post("pending", at(-1))]);
     expect((await classifyProgress(db, T0)).stalled).toBe(false);
@@ -177,8 +185,26 @@ describe("progress", () => {
     await db.prepare("UPDATE posts SET status = 'dropped' WHERE id <= ?").bind(next - 1).run();
     [op] = await operations(db, T0 + 120_000);
     expect(op).toMatchObject({ classify: { done: 2, total: 2 }, finished_at: at(2) });
+    // A later re-classify of the same posts does not make it look unfinished.
+    await db.prepare("UPDATE posts SET status = 'pending' WHERE id <= ?").bind(next - 1).run();
+    [op] = await operations(db, T0 + 180_000);
+    expect(op).toMatchObject({ classify: { done: 2, total: 2 }, finished_at: at(2) });
     // Finished operations drop off after a day.
     expect(await operations(db, T0 + 2 * 1440 * 60_000)).toEqual([]);
+  });
+
+  it("lists unfinished operations ahead of finished ones", async () => {
+    await db.prepare("INSERT INTO operations (kind, total, last_post_id, started_at) VALUES ('reclassify', 1, 0, ?)").bind(at(-30)).run();
+    await db.batch(
+      Array.from({ length: 6 }, (_, i) =>
+        db.prepare("INSERT INTO operations (kind, total, last_post_id, started_at, finished_at) VALUES ('reclassify', 1, 0, ?, ?)").bind(at(-20 + i), at(-10)),
+      ),
+    );
+    await db.batch([post("pending", at(-60))]);
+    await db.prepare("UPDATE operations SET last_post_id = ? WHERE finished_at IS NULL").bind(next).run();
+    const ops = await operations(db, T0);
+    expect(ops).toHaveLength(5);
+    expect(ops[0]).toMatchObject({ finished_at: null, started_at: at(-30) });
   });
 
   it("tracks a backfill's fetch runs and the posts they stored", async () => {
@@ -205,5 +231,10 @@ describe("progress", () => {
     [op] = await operations(db, T0 + 90 * 60_000);
     expect(op!.fetch).toMatchObject({ done: 2, settled: true });
     expect(op!.finished_at).not.toBeNull();
+
+    // Posts and runs after it finished are not counted.
+    await db.batch([post("pending", at(200)), backfillRun("hn", at(200))]);
+    [op] = await operations(db, T0 + 210 * 60_000);
+    expect(op).toMatchObject({ fetch: { done: 2 }, classify: { done: 2, total: 2 } });
   });
 });

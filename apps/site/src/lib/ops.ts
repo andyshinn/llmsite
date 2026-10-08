@@ -145,7 +145,7 @@ export async function classifyProgress(db: D1Database, now = Date.now()): Promis
     .prepare(
       `SELECT
          (SELECT count(*) FROM posts WHERE status = 'pending') AS pending,
-         (SELECT count(*) FROM posts WHERE classified_at >= ?1) AS recent,
+         (SELECT count(*) FROM posts WHERE classified_at >= ?1 AND status != 'pending') AS recent,
          (SELECT min(created_at) FROM posts WHERE status = 'pending') AS oldest`,
     )
     .bind(since)
@@ -192,7 +192,8 @@ interface OperationRow {
  */
 export async function operations(db: D1Database, now = Date.now()): Promise<Operation[]> {
   const { results } = await db
-    .prepare("SELECT * FROM operations WHERE finished_at IS NULL OR finished_at >= ? ORDER BY id DESC LIMIT 5")
+    .prepare(// Unfinished first, so a run of finished ones never hides an active one.
+      "SELECT * FROM operations WHERE finished_at IS NULL OR finished_at >= ? ORDER BY finished_at IS NULL DESC, id DESC LIMIT 5")
     .bind(iso(now - 1440 * MINUTE))
     .all<OperationRow>();
   return Promise.all(results.map((op) => (op.kind === "backfill" ? backfillProgress(db, op, now) : reclassifyProgress(db, op, now))));
@@ -205,27 +206,31 @@ async function reclassifyProgress(db: D1Database, op: OperationRow, now: number)
     .first<{ n: number }>();
   const done = Math.max(0, op.total - (r?.n ?? 0));
   const finished_at = op.finished_at ?? (done >= op.total ? await finish(db, op.id, now) : null);
-  return { ...pick(op), finished_at, fetch: null, classify: { done, total: op.total } };
+  // Once finished it stays complete, even if a later re-classify resets the same posts.
+  return { ...pick(op), finished_at, fetch: null, classify: { done: finished_at ? op.total : done, total: op.total } };
 }
 
 async function backfillProgress(db: D1Database, op: OperationRow, now: number): Promise<Operation> {
   const sourceFilter = op.source && op.source !== "all" ? op.source : null;
+  // A finished backfill only counts what happened while it ran.
+  const until = op.finished_at;
   const runs = await db
     .prepare(
       `SELECT
          count(CASE WHEN finished_at IS NOT NULL AND error IS NULL THEN 1 END) AS done,
          count(CASE WHEN error IS NOT NULL THEN 1 END) AS failed,
          max(started_at) AS last_started
-       FROM source_runs WHERE mode = 'backfill' AND started_at >= ?1 AND (?2 IS NULL OR source = ?2)`,
+       FROM source_runs
+       WHERE mode = 'backfill' AND started_at >= ?1 AND (?2 IS NULL OR source = ?2) AND (?3 IS NULL OR started_at < ?3)`,
     )
-    .bind(op.started_at, sourceFilter)
+    .bind(op.started_at, sourceFilter, until)
     .first<{ done: number; failed: number; last_started: string | null }>();
   const posts = await db
     .prepare(
       `SELECT count(*) AS total, count(CASE WHEN status != 'pending' THEN 1 END) AS done
-       FROM posts WHERE created_at >= ?1 AND (?2 IS NULL OR source = ?2)`,
+       FROM posts WHERE created_at >= ?1 AND (?2 IS NULL OR source = ?2) AND (?3 IS NULL OR created_at < ?3)`,
     )
-    .bind(op.started_at, sourceFilter)
+    .bind(op.started_at, sourceFilter, until)
     .first<{ total: number; done: number }>();
   const done = Math.min(runs?.done ?? 0, op.total);
   const quietSince = iso(now - FETCH_QUIET_MIN * MINUTE);
@@ -233,7 +238,9 @@ async function backfillProgress(db: D1Database, op: OperationRow, now: number): 
   const classify = { done: posts?.done ?? 0, total: posts?.total ?? 0 };
   const complete = settled && classify.done >= classify.total;
   const finished_at = op.finished_at ?? (complete ? await finish(db, op.id, now) : null);
-  return { ...pick(op), finished_at, fetch: { done, failed: runs?.failed ?? 0, total: op.total, settled }, classify };
+  // Stays complete even if a later re-classify sends some of its posts back to pending.
+  if (finished_at) classify.done = classify.total;
+  return { ...pick(op), finished_at, fetch: { done, failed: runs?.failed ?? 0, total: op.total, settled: settled || !!finished_at }, classify };
 }
 
 const pick = (op: OperationRow) => ({ id: op.id, kind: op.kind, source: op.source, days: op.days, started_at: op.started_at });
