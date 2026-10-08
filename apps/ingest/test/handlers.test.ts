@@ -81,6 +81,13 @@ it("ENABLED_SOURCES in core matches the ingest adapters", async () => {
   expect([...ENABLED_SOURCES].sort()).toEqual(Object.keys(ADAPTERS).sort());
 });
 
+it("WINDOWED_SOURCES in core matches the adapters that fan out", async () => {
+  const { WINDOWED_SOURCES } = await import("@radar/core");
+  const { ADAPTERS } = await import("../src/sources/index.ts");
+  const windowed = Object.entries(ADAPTERS).filter(([, a]) => a.windowed).map(([s]) => s);
+  expect([...WINDOWED_SOURCES].sort()).toEqual(windowed.sort());
+});
+
 it("re-queues stale pending posts in batches of 100, up to the limit", async () => {
   const rows = Array.from({ length: 250 }, (_, i) =>
     env.DB.prepare(
