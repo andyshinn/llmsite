@@ -40,6 +40,10 @@ on:
         description: "backfill: how many days back"
         type: string
         default: "90"
+      include_old_drops:
+        description: "reclassify-queued: also re-check posts dropped by an older model"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -138,9 +142,14 @@ jobs:
       - name: Reclassify unreviewed queued posts
         if: inputs.action == 'reclassify-queued'
         working-directory: apps/ingest
+        env:
+          OLD_DROPS: ${{ inputs.include_old_drops }}
         run: |
           # Same statements the admin status panel runs (packages/core/src/ops.ts).
-          node --input-type=module -e 'import { RESET_UNREVIEWED_QUEUED_SQL } from "@radar/core"; console.log(RESET_UNREVIEWED_QUEUED_SQL.join(";\n") + ";")' > reclassify.sql
+          node --input-type=module -e '
+            import { RESET_OLD_MODEL_DROPS_SQL, RESET_UNREVIEWED_QUEUED_SQL } from "@radar/core";
+            const sql = [...RESET_UNREVIEWED_QUEUED_SQL, ...(process.env.OLD_DROPS === "true" ? [RESET_OLD_MODEL_DROPS_SQL] : [])];
+            console.log(sql.join(";\n") + ";");' > reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --file reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --json --command "SELECT id FROM posts WHERE status = 'pending'" \
             | jq -c '[.[0].results[].id | {body: {kind: "classify", post_id: ., force: true}, content_type: "json"}]' > jobs.json

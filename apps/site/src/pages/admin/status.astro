@@ -7,6 +7,7 @@ import Progress from "../../components/Progress.astro";
 import Admin from "../../layouts/Admin.astro";
 import {
   MAX_BACKFILL_DAYS,
+  type ReclassifyPreview,
   backfillEstimate,
   classifyProgress,
   operations,
@@ -21,7 +22,7 @@ import { SOURCE_LABELS, aboutDuration, btnPrimary, btnSecondary, card, input, la
 
 type Confirm =
   | { kind: "backfill"; source: string; days: number; estimate: ReturnType<typeof backfillEstimate> }
-  | { kind: "reclassify"; posts: number; kept: number };
+  | ({ kind: "reclassify" } & ReclassifyPreview);
 
 let error: string | null = null;
 let confirm: Confirm | null = null;
@@ -49,7 +50,7 @@ if (Astro.request.method === "POST") {
     if (action === "reclassify") {
       if (!confirmed) confirm = { kind: "reclassify", ...(await reclassifyPreview(env.DB)) };
       else {
-        const n = await reclassifyQueued(env.DB, env.CLASSIFY_QUEUE);
+        const n = await reclassifyQueued(env.DB, env.CLASSIFY_QUEUE, Date.now(), { includeOldDrops: form.get("old_drops") === "yes" });
         return Astro.redirect(`/admin/status?done=reclassify&n=${n}`, 303);
       }
     }
@@ -120,9 +121,17 @@ const sourceLabel = (s: string) => (s === "all" ? "all sources" : (SOURCE_LABELS
               <li>{confirm.kept.toLocaleString()} queued posts you already acted on (for example, moved) stay as they are.</li>
               <li>About ${(confirm.posts * 0.0004).toFixed(2)} and {minutes(Math.ceil(confirm.posts / 18))}.</li>
             </ul>
+            {confirm.oldDrops > 0 && (
+              <label class="mt-4 flex gap-3 rounded-lg bg-gray-50 p-3 text-sm">
+                <input type="checkbox" name="old_drops" value="yes" form="confirm-form" checked class="mt-0.5 size-5 shrink-0 rounded border-gray-300 text-brand-600" />
+                <span>
+                  Also re-check <strong>{confirm.oldDrops.toLocaleString()}</strong> posts dropped by an older model, in case it missed real tools. Adds about ${(confirm.oldDrops * 0.0004).toFixed(2)} and {minutes(Math.ceil(confirm.oldDrops / 18))}.
+                </span>
+              </label>
+            )}
           </>
         )}
-        <form method="post" class="mt-4 grid grid-cols-2 gap-3">
+        <form method="post" id="confirm-form" class="mt-4 grid grid-cols-2 gap-3">
           <input type="hidden" name="action" value={confirm.kind} />
           <input type="hidden" name="confirm" value="yes" />
           {confirm.kind === "backfill" && (

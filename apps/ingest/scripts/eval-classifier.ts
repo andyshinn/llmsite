@@ -1,5 +1,7 @@
 // Scores the classifier against the hand-labeled set in evals/classifier.
-//   pnpm --filter @radar/ingest eval:classifier -- --model=@cf/zai-org/glm-5.3-flash --reasoning=low [--limit=40]
+//   pnpm --filter @radar/ingest eval:classifier -- [--model=@cf/zai-org/glm-5.3-flash] [--reasoning=low] [--limit=40]
+// The model and category list default to production's settings (read from D1), so the eval
+// matches what the Worker runs; pass --model or --categories=a,b,other to try something else.
 // Credentials: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID, or a local `wrangler login`.
 // Calls go through the "radar" AI Gateway, so the daily spend cap applies to evals too.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,7 +17,8 @@ const { values: args } = parseArgs({
   // pnpm forwards a literal "--" before script arguments.
   args: process.argv.slice(2).filter((a) => a !== "--"),
   options: {
-    model: { type: "string", default: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
+    model: { type: "string" },
+    categories: { type: "string" },
     reasoning: { type: "string" },
     set: { type: "string", default: "evals/classifier/labeled-2026-10.jsonl" },
     limit: { type: "string" },
@@ -26,7 +29,6 @@ const { values: args } = parseArgs({
     out: { type: "string" },
   },
 });
-const CATEGORIES = ["agent", "agent-addon", "agent-tools", "agent-security", "review-testing", "memory-context", "ide", "cli", "mcp-dev", "mcp-general", "other"];
 const NEURON_USD = 0.011 / 1000;
 
 interface Item { post_id: number; source: string; url: string; title: string; in_scope: boolean; mcp_only: boolean }
@@ -38,6 +40,23 @@ const token =
   process.env.CLOUDFLARE_API_TOKEN ??
   readFileSync(`${homedir()}/Library/Preferences/.wrangler/config/default.toml`, "utf8").match(/oauth_token = "([^"]+)"/)?.[1];
 if (!token) throw new Error("Set CLOUDFLARE_API_TOKEN or run `wrangler login`.");
+
+// Production settings, unless overridden on the command line.
+async function productionSetting(key: string): Promise<unknown> {
+  const config = readFileSync(resolve(root, "apps/ingest/wrangler.jsonc"), "utf8");
+  const databaseId = config.match(/"database_id":\s*"([^"]+)"/)?.[1];
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${databaseId}/query`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ sql: "SELECT value FROM settings WHERE key = ?", params: [key] }),
+  });
+  const body = (await res.json()) as { result?: { results: { value: string }[] }[] };
+  const value = body.result?.[0]?.results[0]?.value;
+  if (!res.ok || value === undefined) throw new Error(`Could not read setting ${key} from D1 (${res.status}); pass it as a flag.`);
+  return JSON.parse(value);
+}
+const model = args.model ?? String(await productionSetting("model_id"));
+const categories = args.categories ? args.categories.split(",").map((c) => c.trim()) : ((await productionSetting("categories")) as string[]);
 
 let neurons = 0;
 // Shared pacing across workers: request starts are spaced 60s / rpm apart.
@@ -95,7 +114,7 @@ await Promise.all(
       const t0 = Date.now();
       try {
         const r = await classifyPost(
-          { model: args.model!, categories: CATEGORIES, post: item, text: await text(item), fewShot: [], reasoningEffort: args.reasoning },
+          { model, categories, post: item, text: await text(item), fewShot: [], reasoningEffort: args.reasoning },
           ai,
         );
         const c = r.ok ? r.value : null;
@@ -122,7 +141,8 @@ function score(subset: Row[], gold: (r: Row) => boolean) {
 }
 const ms = rows.map((r) => r.ms).sort((a, b) => a - b);
 const cost = neurons * NEURON_USD;
-console.log(`\nmodel ${args.model}${args.reasoning ? ` (reasoning ${args.reasoning})` : ""} · ${rows.length} posts`);
+console.log(`\ncategories ${categories.join(", ")}`);
+console.log(`model ${model}${args.reasoning ? ` (reasoning ${args.reasoning})` : ""} · ${rows.length} posts`);
 console.log(`all          ${score(rows, (r) => r.in_scope)}`);
 console.log(`strict MCP   ${score(rows, (r) => r.in_scope && !r.mcp_only)}`);
 for (const src of [...new Set(rows.map((r) => r.source))]) console.log(`${src.padEnd(12)} ${score(rows.filter((r) => r.source === src), (r) => r.in_scope)}`);

@@ -44,14 +44,33 @@ export const RESET_UNREVIEWED_QUEUED_SQL = [
   `DELETE FROM tools WHERE id IN (SELECT t.id FROM tools t WHERE ${ORPHAN_TOOL})`,
 ];
 
+/**
+ * Dropped posts whose classification came from a model other than the current
+ * `model_id` (or from before the model was recorded). After a model change, the
+ * old model's drops may hide real tools; posts judged by the current model are kept.
+ */
+const OLD_MODEL_DROP = `status = 'dropped'
+    AND json_extract(classification, '$.model') IS NOT (SELECT json_extract(value, '$') FROM settings WHERE key = 'model_id')`;
+
+/** Optional extra reset step: old-model drops go back to `pending` too. Used by the panel and ops.yml. */
+export const RESET_OLD_MODEL_DROPS_SQL = `UPDATE posts
+  SET status = 'pending', classification = NULL, confidence = NULL, raw_output = NULL,
+      post_type = NULL, version = NULL, drop_reason = NULL, classified_at = NULL
+  WHERE ${OLD_MODEL_DROP}`;
+
 /** How many posts and tools a reset would touch (for the confirmation screen). */
 export const RESET_PREVIEW_SQL = `SELECT
   (SELECT count(*) FROM posts WHERE status = 'queued' AND id NOT IN (SELECT post_id FROM review_decisions)) AS posts,
-  (SELECT count(*) FROM posts WHERE status = 'queued' AND id IN (SELECT post_id FROM review_decisions)) AS kept`;
+  (SELECT count(*) FROM posts WHERE status = 'queued' AND id IN (SELECT post_id FROM review_decisions)) AS kept,
+  (SELECT count(*) FROM posts WHERE ${OLD_MODEL_DROP}) AS old_drops`;
 
-/** Runs the reset as one transaction and returns the IDs of every post now waiting for classification. */
-export async function resetUnreviewedQueued(db: D1Database): Promise<number[]> {
-  await db.batch(RESET_UNREVIEWED_QUEUED_SQL.map((sql) => db.prepare(sql)));
+/**
+ * Runs the reset as one transaction and returns the IDs of every post now waiting for
+ * classification. With `includeOldDrops`, posts dropped by an older model are reset too.
+ */
+export async function resetUnreviewedQueued(db: D1Database, options: { includeOldDrops?: boolean } = {}): Promise<number[]> {
+  const statements = [...RESET_UNREVIEWED_QUEUED_SQL, ...(options.includeOldDrops ? [RESET_OLD_MODEL_DROPS_SQL] : [])];
+  await db.batch(statements.map((sql) => db.prepare(sql)));
   const { results } = await db.prepare("SELECT id FROM posts WHERE status = 'pending' ORDER BY id").all<{ id: number }>();
   return results.map((r) => r.id);
 }
