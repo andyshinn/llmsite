@@ -165,6 +165,13 @@ The starting values are guesses to tune against the backfilled data. Closed-sour
 
 **Active tools:** a tool is active if it had a post or release in the last 30 days, or gained stars compared with a week earlier. Only active tools get their posts' engagement and their GitHub stats refreshed. A new post reactivates a tool automatically.
 
+**Daily trending job:** a second cron at 07:00 UTC, an hour after the fetch, puts a `trending` job on the fetch queue. The status panel's Run button sends the same job. It runs in three steps and records a `source_runs` row with source `trending`:
+1. **Engagement:** refreshes upvotes and comments for HN and lobste.rs posts from the last 14 days, on tools that aren't hidden. HN uses batched Algolia lookups of 50; lobste.rs is one request per story.
+2. **GitHub stats:** snapshots stars, forks, language and license into `repo_snapshots` for active tools with a repo. It uses GraphQL in batches of 50, which needs the `GH_API_TOKEN` Worker secret; without it, the job snapshots about 40 repos over REST and the run notes the shortfall.
+3. **Scores:** recomputes `trending_score` and `is_active` for every tool that isn't hidden.
+
+GitHub posts count toward S, but their stars are not counted as upvotes in P; stars enter only through `stars_gained_7d`. Partial problems, such as a rate limit or a failed lookup, are recorded on the run instead of failing it, so the scores still update.
+
 **Backfill gap:** star growth is unknown for the 90 backfilled days, because snapshots only start at launch. Trending relies on posts and engagement until a week of snapshots exists.
 
 ## Data model
@@ -181,7 +188,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 | `repo_snapshots` | Daily GitHub stats per tool | tool_id, date, stars, forks, language, license |
 | `review_decisions` | Every approve, reject or edit made in the queue | post_id, decision, corrected_fields (JSON), use_in_prompt, decided_at |
 | `reports` | Visitor reports from tool pages | id, tool_id, reason, note, created_at, resolved_at |
-| `source_runs` | One row per source per run, for the status panel | source, mode (daily, manual, backfill), started_at, finished_at, items_fetched, error |
+| `source_runs` | One row per source per run, for the status panel (source `trending` is the daily trending job; its item count is tools scored) | source, mode (daily, manual, backfill), started_at, finished_at, items_fetched, error |
 | `operations` | Backfills and re-classifies started from the admin panel, for progress | id, kind (backfill, reclassify), source, days, total, last_post_id, started_at, finished_at |
 | `settings` | Tunable values as JSON | key, value |
 
@@ -229,7 +236,7 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 - **Tools:** edit tool details, merge two tools, split a past merge, hide a tool.
 - **Settings:** every key in `settings` (threshold, trending weights, category list, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
-- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). Re-classify can also re-check posts dropped by a model other than the current `model_id`, since an older model's drops may hide real tools. These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:
+- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). A Trending card shows the last trending job and can run it now. Re-classify can also re-check posts dropped by a model other than the current `model_id`, since an older model's drops may hide real tools. These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:
   - **Classifying:** posts waiting, the rate over the last 15 minutes and an ETA. A warning appears when posts are waiting but nothing was classified in 15 minutes (usually the AI spend cap).
   - **Each backfill and re-classify** started from the panel (from `operations`), until a day after it finishes. A backfill shows fetch runs done out of expected (one per day for HN and GitHub, or a single run when the backfill covers two days or less; one for lobste.rs) and its stored posts classified. A re-classify shows its posts classified. Fetching counts as over once every run succeeds or none has started for an hour, so a day that keeps failing does not hold the backfill open forever. Progress is derived from `posts` and `source_runs` when the page loads, and a Refresh button reloads it (no JavaScript). Runs started from `ops.yml` only show in the Classifying line.
 

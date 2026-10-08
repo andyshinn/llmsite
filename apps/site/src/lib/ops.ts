@@ -4,6 +4,7 @@ import {
   type FetchJob,
   RESET_PREVIEW_SQL,
   type Source,
+  type TrendingJob,
   backfillRunCount,
   fetchJobs,
   resetUnreviewedQueued,
@@ -89,6 +90,19 @@ export async function runNow(fetchQueue: Queue, choice: string): Promise<FetchJo
   const jobs = fetchJobs(sourcesFor(choice), "manual");
   await sendAll(fetchQueue, jobs);
   return jobs;
+}
+
+/** The latest run of the daily trending update (engagement, GitHub stats, scores). */
+export async function trendingStatus(db: D1Database): Promise<SourceRun | null> {
+  return db
+    .prepare("SELECT mode, started_at, finished_at, items_fetched, error FROM source_runs WHERE source = 'trending' ORDER BY started_at DESC LIMIT 1")
+    .first<SourceRun>();
+}
+
+/** "Run now" for the trending update. */
+export async function runTrending(fetchQueue: Queue): Promise<void> {
+  const job: TrendingJob = { kind: "trending", mode: "manual" };
+  await fetchQueue.send(job);
 }
 
 export const MAX_BACKFILL_DAYS = 180;
