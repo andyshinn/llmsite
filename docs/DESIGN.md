@@ -159,15 +159,16 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 | `tools` | One row per tool | id, slug, name, description, category, tags (JSON), homepage_url, github_repo, is_open_source, status (published, queued, hidden), is_active, trending_score, first_seen_at, last_post_at |
 | `tool_aliases` | Names, domains and repos that resolve to a tool | tool_id, kind (repo, domain, name), value (unique per kind) |
 | `tool_merges` | Merge log, used to undo merges | id, from_tool_id, into_tool_id, moved_aliases (JSON), moved_posts (JSON), merged_at, undone_at |
-| `posts` | One row per submission | id, source, external_id, url, canonical_url, title, author, posted_at, tool_id, post_type, version, classification (JSON), confidence, status (pending, published, queued, rejected, dropped), drop_reason, raw_output |
+| `posts` | One row per submission | id, source, external_id, url, canonical_url, title, author, posted_at, tool_id, post_type, version, classification (JSON), confidence, status (pending, published, queued, rejected, dropped), drop_reason, raw_output, classified_at |
 | `post_snapshots` | Daily engagement per post | post_id, date, score, comments |
 | `repo_snapshots` | Daily GitHub stats per tool | tool_id, date, stars, forks, language, license |
 | `review_decisions` | Every approve, reject or edit made in the queue | post_id, decision, corrected_fields (JSON), use_in_prompt, decided_at |
 | `reports` | Visitor reports from tool pages | id, tool_id, reason, note, created_at, resolved_at |
 | `source_runs` | One row per source per run, for the status panel | source, mode (daily, manual, backfill), started_at, finished_at, items_fetched, error |
+| `operations` | Backfills and re-classifies started from the admin panel, for progress | id, kind (backfill, reclassify), source, days, total, last_post_id, started_at, finished_at |
 | `settings` | Tunable values as JSON | key, value |
 
-**Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue.
+**Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue. `classified_at` is set by a trigger when a post leaves `pending`.
 
 **Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id`, `model_reasoning_effort`, `max_fewshot`, `github_topics` and `github_min_stars`.
 
@@ -211,7 +212,9 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 - **Tools:** edit tool details, merge two tools, split a past merge, hide a tool.
 - **Settings:** every key in `settings` (threshold, trending weights, category list, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
-- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions.
+- **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:
+  - **Classifying:** posts waiting, the rate over the last 15 minutes and an ETA. A warning appears when posts are waiting but nothing was classified in 15 minutes (usually the AI spend cap).
+  - **Each backfill and re-classify** started from the panel (from `operations`), until a day after it finishes. A backfill shows fetch runs done out of expected (one per day for HN and GitHub, one for lobste.rs) and its stored posts classified. A re-classify shows its posts classified. Fetching counts as over once every run succeeds or none has started for an hour, so a day that keeps failing does not hold the backfill open forever. Progress is derived from `posts` and `source_runs` when the page loads, and a Refresh button reloads it (no JavaScript). Runs started from `ops.yml` only show in the Classifying line.
 
 **Feedback loop:** every queue decision is stored in `review_decisions`. A checkbox marks a decision as a few-shot example. Only marked rows, up to `max_fewshot`, go into the classifier prompt. A "reclassify" button re-runs the classifier over cached R2 text after the prompt or examples change.
 

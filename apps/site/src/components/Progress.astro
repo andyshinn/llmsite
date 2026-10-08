@@ -1,0 +1,22 @@
+---
+// A labeled progress bar (Tailwind Plus "progress bar" style; no JS).
+interface Props {
+  label: string;
+  done: number;
+  total: number;
+  detail?: string;
+}
+const { label, done, total, detail } = Astro.props;
+const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+---
+
+<div class="mt-3">
+  <div class="flex justify-between gap-3 text-sm">
+    <span class="font-medium text-gray-900">{label}</span>
+    <span class="text-gray-600 tabular-nums">{done.toLocaleString()} of {total.toLocaleString()}</span>
+  </div>
+  <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-200" role="progressbar" aria-label={label} aria-valuemin="0" aria-valuemax={total} aria-valuenow={done}>
+    <div class="h-2 rounded-full bg-brand-600" style={`width: ${pct}%`}></div>
+  </div>
+  {detail && <p class="mt-1 text-xs text-gray-500">{detail}</p>}
+</div>
