@@ -38,11 +38,12 @@
     "consumers": [
       // Gentle on source APIs; a 90-day HN backfill fans out into 90 of these.
       { "queue": "radar-fetch", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 2 },
-      // One post at a time: the classifier model (a Workers Paid model) is limited to
-      // 20 requests/minute, and one call takes ~3.5s. Concurrent tool creation is
-      // still handled in the resolver.
-      // Still sometimes rate limited (429); retries are spaced a minute or more apart.
-      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 5, "max_concurrency": 1 }
+      // Two posts at a time: the classifier model (a Workers Paid model) is limited to
+      // 20 requests/minute, and with low reasoning one call takes 4-10s, so one at a
+      // time managed only ~5 a minute (Oct 2026). Two gives ~10-15 a minute; an
+      // occasional 429 is retried a minute or more later. Concurrent tool creation is
+      // handled in the resolver.
+      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 5, "max_concurrency": 2 }
     ]
   }
 }
