@@ -5,6 +5,7 @@ import { resetDb } from "./helpers.ts";
 
 beforeEach(resetDb);
 const CATEGORIES = ["agent", "ide", "cli", "mcp-dev", "mcp-general", "other"];
+const TAGS = [{ slug: "works-with", label: "Works with", hint: "", tags: [{ slug: "claude-code", label: "Claude Code" }] }];
 const model = {
   is_ai_dev_tool: true, post_type: "launch", tool_name: "Patchwork", homepage_url: null, github_repo: "acme/patchwork",
   version: null, category: "agent", tags: [], is_open_source: true, description: "Reviews PRs.", confidence: 0.9,
@@ -26,7 +27,7 @@ async function decided(classification: object | null, corrected: object | null, 
 it("applies corrections to the model output, newest first", async () => {
   await decided(model, { category: "cli" });
   await decided(model, { is_ai_dev_tool: false });
-  const examples = await loadFewShot(env.DB, 20, CATEGORIES);
+  const examples = await loadFewShot(env.DB, 20, CATEGORIES, TAGS);
   expect(examples.map((e) => [e.post.title, e.output.is_ai_dev_tool, e.output.category])).toEqual([
     ["Post 2", false, "agent"],
     ["Post 1", true, "cli"],
@@ -37,7 +38,7 @@ it("uses a full edit of a post whose model output was invalid, and skips an inco
   const { confidence: _, ...fields } = model;
   await decided(null, { ...fields, tool_name: "Rescued" });
   await decided(null, { is_ai_dev_tool: false }); // a reject of an invalid-output post: not a complete example
-  const examples = await loadFewShot(env.DB, 20, CATEGORIES);
+  const examples = await loadFewShot(env.DB, 20, CATEGORIES, TAGS);
   expect(examples.map((e) => e.output.tool_name)).toEqual(["Rescued"]);
   expect(examples[0]!.output.confidence).toBe(1);
 });
@@ -46,6 +47,6 @@ it("ignores decisions not marked for the prompt and respects the limit", async (
   await decided(model, null, 0);
   await decided(model, null);
   await decided(model, null);
-  expect(await loadFewShot(env.DB, 1, CATEGORIES)).toHaveLength(1);
-  expect(await loadFewShot(env.DB, 0, CATEGORIES)).toEqual([]);
+  expect(await loadFewShot(env.DB, 1, CATEGORIES, TAGS)).toHaveLength(1);
+  expect(await loadFewShot(env.DB, 0, CATEGORIES, TAGS)).toEqual([]);
 });

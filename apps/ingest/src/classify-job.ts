@@ -1,4 +1,4 @@
-import { type Classification, type ClassifyJob, classificationSchema, getSetting, resolveTool } from "@radar/core";
+import { type Classification, type ClassifyJob, type TagGroups, classificationSchema, getSetting, resolveTool, tagSlugs } from "@radar/core";
 import { type FewShotExample, classifierFingerprint, classifyPost } from "./classifier.ts";
 import { getArticleText } from "./content.ts";
 import type { Deps } from "./deps.ts";
@@ -23,14 +23,15 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   // Already routed (e.g. a redelivered message): nothing to do.
   if (!post || post.status !== "pending") return;
 
-  const [threshold, categories, model, reasoningEffort, maxFewShot] = await Promise.all([
+  const [threshold, categories, model, reasoningEffort, maxFewShot, tags] = await Promise.all([
     getSetting(db, "review_threshold"),
     getSetting(db, "categories"),
     getSetting(db, "model_id"),
     getSetting(db, "model_reasoning_effort"),
     getSetting(db, "max_fewshot"),
+    getSetting(db, "tags"),
   ]);
-  const schema = classificationSchema(categories);
+  const schema = classificationSchema(categories, tagSlugs(tags));
   const parseStored = (json: string | null) => {
     const result = json ? schema.safeParse(JSON.parse(json)) : null;
     return result?.success ? result.data : null;
@@ -45,7 +46,7 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
   // its canonical owner/repo URL with the launch post but needs its own type and version.
   // Only reuses a result from the same classifier setup (model, reasoning, prompt and
   // categories), and never for forced jobs (re-classify), which always call the model.
-  const classifier = await classifierFingerprint(model, reasoningEffort, categories);
+  const classifier = await classifierFingerprint(model, reasoningEffort, categories, tags);
   if (!classification && !job.force) {
     const twin = await db
       .prepare(
@@ -61,8 +62,8 @@ export async function runClassifyJob(job: ClassifyJob, deps: Deps): Promise<void
 
   if (!classification) {
     const text = await getArticleText(post, deps);
-    const fewShot = await loadFewShot(db, maxFewShot, categories);
-    const result = await classifyPost({ model, categories, post, text, fewShot, reasoningEffort: reasoningEffort || undefined }, deps.ai);
+    const fewShot = await loadFewShot(db, maxFewShot, categories, tags);
+    const result = await classifyPost({ model, categories, tags, post, text, fewShot, reasoningEffort: reasoningEffort || undefined }, deps.ai);
     if (!result.ok) {
       await db
         .prepare("UPDATE posts SET status = 'queued', raw_output = ? WHERE id = ?")
@@ -128,7 +129,7 @@ async function route(db: D1Database, post: PostRow, c: Classification, threshold
  * edit stores every field then). Examples that don't form a complete valid
  * classification are skipped.
  */
-export async function loadFewShot(db: D1Database, limit: number, categories: readonly string[]): Promise<FewShotExample[]> {
+export async function loadFewShot(db: D1Database, limit: number, categories: readonly string[], tags: TagGroups): Promise<FewShotExample[]> {
   if (limit <= 0) return [];
   const { results } = await db
     .prepare(
@@ -139,7 +140,8 @@ export async function loadFewShot(db: D1Database, limit: number, categories: rea
     )
     .bind(limit * 3)
     .all<{ source: string; title: string; url: string; classification: string | null; corrected_fields: string | null }>();
-  const schema = classificationSchema(categories);
+  // Tags outside today's vocabulary drop out of the example (into suggested_tags).
+  const schema = classificationSchema(categories, tagSlugs(tags));
   const examples: FewShotExample[] = [];
   for (const r of results) {
     const merged: Record<string, unknown> = {

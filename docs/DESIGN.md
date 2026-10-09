@@ -25,6 +25,17 @@ A public website that discovers new AI coding tools daily from developer communi
 
 The list lives in the `categories` setting; the one-line description the classifier sees for each is in `apps/ingest/src/classifier.ts`, so a category added from the settings page works but has no description until the code adds one.
 
+**Tags** come from a fixed vocabulary in the `tags` setting, in four groups. Visitors filter by them, and the classifier may only choose from them (up to 6 per tool):
+
+| Group | Means | Tags |
+| --- | --- | --- |
+| Works with | The coding agent or editor it plugs into or drives | Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Pi, GitHub Copilot, Windsurf, Zed, VS Code, JetBrains, Xcode, Any agent |
+| Models | Whose AI models it uses | Claude, OpenAI, Gemini, DeepSeek, Qwen, Local models, Any model |
+| Platform | Where it runs | macOS, Linux, Windows, iOS, Self-hosted, Docker |
+| Interface | How you use it | CLI, Desktop app, Web app, Editor extension, MCP server, Plugin or skill, Menu bar, GitHub Action |
+
+Interface overlaps some categories on purpose; it is a filter, while the category says what the tool is for. A tag the model needs but can't use goes into `suggested_tags`, and the settings page lists the most requested ones so the vocabulary can grow. Programming languages are not tags: the language filter uses GitHub's repo language. Tool and post tags are stored as slugs.
+
 **Out of scope:**
 
 - SDKs and libraries for building LLM apps
@@ -110,7 +121,8 @@ The model must return JSON in this shape:
   "github_repo": "owner/repo | null",
   "version": "string | null",
   "category": "one of the categories setting (see Categories above)",
-  "tags": ["string"],
+  "tags": ["slugs from the tags setting only, up to 6"],
+  "suggested_tags": ["missing tags the model would add, up to 3; usually empty"],
   "is_open_source": true,
   "description": "one line, under 140 characters",
   "confidence": 0.0
@@ -194,7 +206,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 
 **Post status:** `pending` means stored but not yet classified. `raw_output` holds model output that failed validation twice, for the review queue. `classified_at` is set by a trigger when a post leaves `pending`.
 
-**Settings keys:** `review_threshold`, `trending_weights`, `categories`, `prefilter_keywords`, `model_id`, `model_reasoning_effort`, `max_fewshot`, `github_topics` and `github_min_stars`.
+**Settings keys:** `review_threshold`, `trending_weights`, `categories`, `tags`, `prefilter_keywords`, `model_id`, `model_reasoning_effort`, `max_fewshot`, `github_topics` and `github_min_stars`.
 
 **Search:** a D1 FTS5 virtual table indexes tool name, description and tags. It is kept in sync with triggers on `tools`.
 
@@ -232,9 +244,9 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
 
 **UI stack:** Tailwind CSS v4 with Heroicons and Tailwind's palette, server-rendered `.astro` components. Admin actions are plain HTML forms, so the admin ships no JavaScript. Tailwind Plus Elements (web components) is the choice when an interactive widget is needed; React is not used.
 
-- **Queue:** each item shows the title, source, extracted text preview and the model's JSON. Actions are approve, reject, edit fields, or reassign to a different tool. Edit and reassign are separate full-screen pages rather than dialogs. Edit stores only the changed fields in `review_decisions.corrected_fields` (the model's output stays in `posts.classification`), updates those fields on the tool, re-resolves the tool if its name, repo or homepage changed, then approves (or rejects, if marked out of scope). Reject records `{"is_ai_dev_tool": false}` so a rejection can serve as a few-shot example. Reassign keeps the post queued.
+- **Queue:** each item shows the title, source, extracted text preview and the model's JSON. Actions are approve, reject, edit fields, or reassign to a different tool. Edit and reassign are separate full-screen pages rather than dialogs. Edit stores only the changed fields in `review_decisions.corrected_fields` (the model's output stays in `posts.classification`), updates those fields on the tool, re-resolves the tool if its name, repo or homepage changed, then approves (or rejects, if marked out of scope). Reject records `{"is_ai_dev_tool": false}` so a rejection can serve as a few-shot example. Reassign keeps the post queued. On the edit page, tags are checkboxes grouped by tag group, so only vocabulary tags can be chosen.
 - **Tools:** edit tool details, merge two tools, split a past merge, hide a tool.
-- **Settings:** every key in `settings` (threshold, trending weights, category list, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy.
+- **Settings:** every key in `settings` (threshold, trending weights, category list, tag vocabulary, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy. The tag vocabulary is edited as text (`# Group | hint` lines, then `slug: Label` lines), with the classifier's most requested missing tags listed below it.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
 - **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). A Trending card shows the last trending job and can run it now. Re-classify can also re-check posts dropped by a model other than the current `model_id`, since an older model's drops may hide real tools. These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:
   - **Classifying:** posts waiting, the rate over the last 15 minutes and an ETA. A warning appears when posts are waiting but nothing was classified in 15 minutes (usually the AI spend cap).

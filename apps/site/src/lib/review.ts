@@ -1,4 +1,4 @@
-import { type Classification, classificationSchema, getSetting, resolveTool } from "@radar/core";
+import { type Classification, classificationSchema, getSetting, resolveTool, tagSlugs } from "@radar/core";
 
 export interface QueuePost {
   id: number;
@@ -153,9 +153,9 @@ const EMPTY: Record<string, unknown> = {
  */
 export async function editPost(db: D1Database, id: number, input: Record<string, unknown>, useInPrompt: boolean): Promise<"approved" | "rejected"> {
   const post = await requireQueued(db, id);
-  const categories = await getSetting(db, "categories");
+  const [categories, tagGroups] = await Promise.all([getSetting(db, "categories"), getSetting(db, "tags")]);
   const original: Record<string, unknown> = post.classification ? JSON.parse(post.classification) : {};
-  const parsed = classificationSchema(categories).safeParse({ ...EMPTY, ...original, ...input, confidence: original.confidence ?? 1 });
+  const parsed = classificationSchema(categories, tagSlugs(tagGroups)).safeParse({ ...EMPTY, ...original, ...input, confidence: original.confidence ?? 1 });
   if (!parsed.success) throw new ReviewError(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
   const c = parsed.data;
 
@@ -216,7 +216,8 @@ export function parseEditForm(form: FormData): Record<string, unknown> {
     github_repo: opt("github_repo"),
     version: opt("version"),
     category: str("category"),
-    tags: str("tags").split(",").map((t) => t.trim()).filter(Boolean),
+    // One checkbox per vocabulary tag.
+    tags: form.getAll("tags").map((t) => String(t).trim()).filter(Boolean),
     is_open_source: str("is_open_source") === "true",
     description: str("description"),
   };

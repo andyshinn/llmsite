@@ -1,5 +1,32 @@
 import { z } from "zod";
 
+const slug = z.string().regex(/^[a-z0-9-]+$/, "lowercase letters, digits and hyphens");
+
+/** The tag vocabulary: groups of tags the classifier may choose from. */
+export const tagGroupsSchema = z
+  .array(
+    z.object({
+      slug,
+      label: z.string().trim().min(1),
+      // What the group means, for the classifier prompt (e.g. "where it runs").
+      hint: z.string().trim().default(""),
+      tags: z.array(z.object({ slug, label: z.string().trim().min(1) })).min(1),
+    }),
+  )
+  .min(1)
+  .refine((groups) => new Set(groups.map((g) => g.slug)).size === groups.length, { message: "group names must be unique" })
+  .refine(
+    (groups) => {
+      const slugs = groups.flatMap((g) => g.tags.map((t) => t.slug));
+      return new Set(slugs).size === slugs.length;
+    },
+    { message: "each tag may appear only once, across all groups" },
+  );
+export type TagGroups = z.infer<typeof tagGroupsSchema>;
+
+/** Every tag slug in the vocabulary. */
+export const tagSlugs = (groups: TagGroups): string[] => groups.flatMap((g) => g.tags.map((t) => t.slug));
+
 // Every tunable value lives in the `settings` table as JSON. Defaults are
 // seeded by migrations, never hard-coded in Worker code.
 export const settingSchemas = {
@@ -11,7 +38,7 @@ export const settingSchemas = {
     g: z.number(),
   }),
   categories: z
-    .array(z.string().regex(/^[a-z0-9-]+$/, "lowercase letters, digits and hyphens"))
+    .array(slug)
     .min(1)
     .refine((c) => c.includes("other"), { message: 'must include "other"' })
     .refine((c) => new Set(c).size === c.length, { message: "no duplicates" }),
@@ -23,6 +50,7 @@ export const settingSchemas = {
   // GitHub adapter: repos with any of these topics and at least this many stars.
   github_topics: z.array(z.string().min(1)).min(1),
   github_min_stars: z.number().int().min(0),
+  tags: tagGroupsSchema,
 } as const;
 
 export type SettingKey = keyof typeof settingSchemas;
