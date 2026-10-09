@@ -4,7 +4,17 @@ import { getSetting } from "@radar/core";
 import Icon from "../../../../components/Icon.astro";
 import Notice from "../../../../components/Notice.astro";
 import Admin from "../../../../layouts/Admin.astro";
-import { ToolError, addAlias, getTool, removeAlias, setHidden, updateTool } from "../../../../lib/tools-admin.ts";
+import {
+  ToolError,
+  addAlias,
+  getTool,
+  mergeHistory,
+  mergedInto,
+  removeAlias,
+  setHidden,
+  splitMerge,
+  updateTool,
+} from "../../../../lib/tools-admin.ts";
 import { SOURCE_LABELS, btnPrimary, btnReject, btnSecondary, card, input, label, safeHref, timeAgo } from "../../../../lib/ui.ts";
 
 const id = Number(Astro.params.id);
@@ -23,6 +33,9 @@ if (Astro.request.method === "POST") {
       await addAlias(env.DB, id, String(form.get("kind")), String(form.get("value") ?? ""));
     } else if (action === "remove_alias") {
       await removeAlias(env.DB, id, String(form.get("kind")), String(form.get("value")));
+    } else if (action === "split") {
+      const { fromId } = await splitMerge(env.DB, Number(form.get("merge_id")));
+      return Astro.redirect(`/admin/tools/${fromId}?done=split`, 303);
     } else if (action === "hide" || action === "unhide") {
       await setHidden(env.DB, id, action === "hide");
     } else {
@@ -36,7 +49,13 @@ if (Astro.request.method === "POST") {
   }
 }
 
-const [tool, categories, tagGroups] = await Promise.all([getTool(env.DB, id), getSetting(env.DB, "categories"), getSetting(env.DB, "tags")]);
+const [tool, categories, tagGroups, merges, mergedAway] = await Promise.all([
+  getTool(env.DB, id),
+  getSetting(env.DB, "categories"),
+  getSetting(env.DB, "tags"),
+  mergeHistory(env.DB, id),
+  mergedInto(env.DB, id),
+]);
 if (!tool) return Astro.redirect("/admin/tools", 302);
 
 // Re-show what was submitted after an error; otherwise the stored values.
@@ -49,6 +68,8 @@ const doneMessage: Record<string, string> = {
   add_alias: "Alias added.",
   remove_alias: "Alias removed.",
   hide: "Hidden. It no longer appears on public pages.",
+  merged: "Merged. The other tool's posts and aliases are now here.",
+  split: "Split back out. Its posts and aliases are back here.",
   unhide: "Visible again.",
 };
 const homepage = safeHref(tool.homepage_url);
@@ -67,6 +88,14 @@ const homepage = safeHref(tool.homepage_url);
   </p>
 
   {done && doneMessage[done] && <div class="mt-4"><Notice>{doneMessage[done]}</Notice></div>}
+  {error?.section === "split" && <div class="mt-4"><Notice tone="error">{error.message}</Notice></div>}
+  {mergedAway && (
+    <div class="mt-4">
+      <Notice>
+        Merged into <a href={`/admin/tools/${mergedAway.id}`} class="font-semibold underline">{mergedAway.name}</a>. To undo, use Split on that tool's page.
+      </Notice>
+    </div>
+  )}
 
   <form method="post" class={`${card} mt-4 space-y-4 p-4`}>
     <input type="hidden" name="action" value="save" />
@@ -184,16 +213,51 @@ const homepage = safeHref(tool.homepage_url);
     {tool.postCount > tool.posts.length && <p class="mt-2 text-sm text-gray-500">Showing the latest {tool.posts.length} of {tool.postCount}.</p>}
   </section>
 
-  <section class="mt-6">
-    <h2 class="text-lg font-semibold">{tool.status === "hidden" ? "Hidden" : "Hide this tool"}</h2>
-    <p class="mt-1 text-sm text-gray-600">
-      Hidden tools disappear from public pages. Their posts stay linked, so new posts about them stay hidden too.
-    </p>
-    <form method="post" class="mt-2">
-      <input type="hidden" name="action" value={tool.status === "hidden" ? "unhide" : "hide"} />
-      <button type="submit" class={`${tool.status === "hidden" ? btnSecondary : btnReject} w-full`}>
-        {tool.status === "hidden" ? "Show this tool again" : "Hide this tool"}
-      </button>
-    </form>
-  </section>
+  {merges.length > 0 && (
+    <section class="mt-6">
+      <h2 class="text-lg font-semibold">Merge history</h2>
+      <ul class={`${card} mt-2 divide-y divide-gray-100`}>
+        {merges.map((m) => (
+          <li class="flex items-center justify-between gap-3 px-4 py-3">
+            <span class="min-w-0 text-sm">
+              <a href={`/admin/tools/${m.from_tool_id}`} class="font-medium text-gray-900 hover:text-brand-700">{m.from_name}</a>
+              <span class="block text-gray-500">
+                Merged {timeAgo(m.merged_at)} · {m.posts} {m.posts === 1 ? "post" : "posts"}, {m.aliases} {m.aliases === 1 ? "alias" : "aliases"}
+              </span>
+            </span>
+            <form method="post">
+              <input type="hidden" name="action" value="split" />
+              <input type="hidden" name="merge_id" value={m.id} />
+              <button type="submit" class={`${btnSecondary} shrink-0`}>Split back out</button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {!mergedAway && (
+    <section class="mt-6">
+      <h2 class="text-lg font-semibold">Merge</h2>
+      <p class="mt-1 text-sm text-gray-600">Same tool listed twice? Move this one's posts and aliases into the other.</p>
+      <a href={`/admin/tools/${id}/merge`} class={`${btnSecondary} mt-2 w-full`}>
+        <Icon name="arrowsRightLeft" class="size-4 text-gray-500" /> Merge into another tool…
+      </a>
+    </section>
+  )}
+
+  {!mergedAway && (
+    <section class="mt-6">
+      <h2 class="text-lg font-semibold">{tool.status === "hidden" ? "Hidden" : "Hide this tool"}</h2>
+      <p class="mt-1 text-sm text-gray-600">
+        Hidden tools disappear from public pages. Their posts stay linked, so new posts about them stay hidden too.
+      </p>
+      <form method="post" class="mt-2">
+        <input type="hidden" name="action" value={tool.status === "hidden" ? "unhide" : "hide"} />
+        <button type="submit" class={`${tool.status === "hidden" ? btnSecondary : btnReject} w-full`}>
+          {tool.status === "hidden" ? "Show this tool again" : "Hide this tool"}
+        </button>
+      </form>
+    </section>
+  )}
 </Admin>

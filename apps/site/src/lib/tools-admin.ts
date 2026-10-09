@@ -241,6 +241,8 @@ export async function setHidden(db: D1Database, id: number, hidden: boolean): Pr
     await db.prepare("UPDATE tools SET status = 'hidden' WHERE id = ?").bind(id).run();
     return;
   }
+  const merged = await db.prepare("SELECT 1 FROM tool_merges WHERE from_tool_id = ? AND undone_at IS NULL").bind(id).first();
+  if (merged) throw new ToolError("This tool was merged into another one. Split the merge to bring it back.");
   await db
     .prepare(
       `UPDATE tools SET status = CASE WHEN EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = tools.id AND p.status = 'published')

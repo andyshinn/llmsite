@@ -1,0 +1,97 @@
+---
+import { env } from "cloudflare:workers";
+import Icon from "../../../../components/Icon.astro";
+import Notice from "../../../../components/Notice.astro";
+import Admin from "../../../../layouts/Admin.astro";
+import { searchTools } from "../../../../lib/review.ts";
+import { ToolError, getTool, mergePreview, mergeTools } from "../../../../lib/tools-admin.ts";
+import { btnPrimary, btnSecondary, card, input } from "../../../../lib/ui.ts";
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id <= 0) return Astro.redirect("/admin/tools", 302);
+
+let error: string | null = null;
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const into = Number(form.get("into"));
+  try {
+    await mergeTools(env.DB, id, into);
+    return Astro.redirect(`/admin/tools/${into}?done=merged`, 303);
+  } catch (err) {
+    if (!(err instanceof ToolError)) throw err;
+    error = err.message;
+    Astro.response.status = 409;
+  }
+}
+
+const tool = await getTool(env.DB, id, 0);
+if (!tool) return Astro.redirect("/admin/tools", 302);
+const intoId = Number(Astro.url.searchParams.get("into")) || 0;
+let preview = null;
+if (intoId) {
+  try {
+    preview = await mergePreview(env.DB, id, intoId);
+  } catch (err) {
+    if (!(err instanceof ToolError)) throw err;
+    error ??= err.message;
+  }
+}
+const q = (Astro.url.searchParams.get("q") ?? tool.name).trim();
+const results = !preview && q ? (await searchTools(env.DB, q)).filter((t) => t.id !== id) : [];
+---
+
+<Admin title={`Merge ${tool.name}`} section="tools">
+  <a href={`/admin/tools/${id}`} class="text-sm font-medium text-brand-700">← Back to {tool.name}</a>
+  <h1 class="mt-2 text-lg font-semibold">Merge {tool.name} into another tool</h1>
+  <p class="mt-1 text-sm text-gray-600">Pick the tool to keep. Everything about {tool.name} moves there.</p>
+
+  {error && <div class="mt-4"><Notice tone="error">{error}</Notice></div>}
+
+  {preview ? (
+    <section class={`${card} mt-4 p-4`}>
+      <h2 class="font-semibold">What moves to {preview.into.name}</h2>
+      <p class="mt-2 text-sm font-medium text-gray-900">{preview.posts.length} {preview.posts.length === 1 ? "post" : "posts"}</p>
+      <ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm text-gray-700">
+        {preview.posts.slice(0, 10).map((p) => <li class="break-words">{p.title}</li>)}
+        {preview.posts.length > 10 && <li>and {preview.posts.length - 10} more</li>}
+      </ul>
+      <p class="mt-3 text-sm font-medium text-gray-900">{preview.aliases.length} {preview.aliases.length === 1 ? "alias" : "aliases"}</p>
+      <ul class="mt-1 flex flex-wrap gap-1.5">
+        {preview.aliases.map((a) => (
+          <li class="rounded-md bg-gray-50 px-2 py-0.5 font-mono text-xs text-gray-700 ring-1 ring-gray-200 ring-inset">{a.kind}: {a.value}</li>
+        ))}
+      </ul>
+      <p class="mt-3 text-sm text-gray-600">
+        {preview.from.name} is hidden, and its public page will redirect to {preview.into.name}. You can undo this later with Split on {preview.into.name}'s page.
+      </p>
+      <form method="post" class="mt-4 grid grid-cols-2 gap-3">
+        <input type="hidden" name="into" value={preview.into.id} />
+        <a href={`/admin/tools/${id}/merge`} class={btnSecondary}>Cancel</a>
+        <button type="submit" class={btnPrimary}>Merge into {preview.into.name}</button>
+      </form>
+    </section>
+  ) : (
+    <>
+      <form method="get" class="mt-4 flex gap-2" role="search">
+        <input type="search" name="q" value={q} placeholder="Search tools" aria-label="Search tools" class={input} autocomplete="off" autocapitalize="off" />
+        <button type="submit" class={btnPrimary} aria-label="Search"><Icon name="magnifyingGlass" /></button>
+      </form>
+      <ul class={`${card} mt-4 divide-y divide-gray-100`}>
+        {results.length === 0 && <li class="p-4 text-sm text-gray-600">{q ? "No other tools match." : "Search by name, description or tag."}</li>}
+        {results.map((t) => (
+          <li>
+            <a href={`/admin/tools/${id}/merge?into=${t.id}`} class="flex min-h-14 items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50">
+              <span>
+                <span class="block font-medium text-gray-900">{t.name}</span>
+                <span class="block text-sm text-gray-500">
+                  {t.category ?? "uncategorized"} · {t.posts} {t.posts === 1 ? "post" : "posts"} · {t.status}
+                </span>
+              </span>
+              <Icon name="arrowsRightLeft" class="size-5 shrink-0 text-gray-400" />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </>
+  )}
+</Admin>

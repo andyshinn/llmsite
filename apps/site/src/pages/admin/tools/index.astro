@@ -99,13 +99,14 @@ const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
           <span class="min-w-0">
             <span class="flex items-center gap-2">
               <span class="truncate font-medium text-gray-900">{t.name}</span>
-              <span class={`shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusChip[t.status]}`}>{t.status}</span>
+              <span class={`shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusChip[t.status]}`}>{t.merged_into ? "merged" : t.status}</span>
             </span>
             {t.github_repo && <span class="block truncate font-mono text-xs text-gray-500">{t.github_repo}</span>}
             <span class="block text-sm text-gray-500">
               {t.category ?? "uncategorized"} · {t.posts} {t.posts === 1 ? "post" : "posts"}
               {t.last_post_at && ` · ${timeAgo(t.last_post_at)}`}
               {t.is_open_source === 0 && " · closed source"}
+              {t.merged_into && ` · into ${t.merged_into}`}
             </span>
           </span>
           <Icon name="pencil" class="size-5 shrink-0 text-gray-400" />
