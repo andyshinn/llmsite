@@ -35,7 +35,7 @@
     {
       "binding": "DB",
       "database_name": "sb",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "4754e0fd-99e0-4b08-8bfa-21a3a6572478",
       "migrations_dir": "../../migrations"
     }
   ]
