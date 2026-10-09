@@ -194,7 +194,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 | --- | --- | --- |
 | `tools` | One row per tool | id, slug, name, description, category, tags (JSON), homepage_url, github_repo, is_open_source, status (published, queued, hidden), is_active, trending_score, first_seen_at, last_post_at |
 | `tool_aliases` | Names, domains and repos that resolve to a tool | tool_id, kind (repo, domain, name), value (unique per kind) |
-| `tool_merges` | Merge log, used to undo merges | id, from_tool_id, into_tool_id, moved_aliases (JSON), moved_posts (JSON), merged_at, undone_at |
+| `tool_merges` | Merge log, used to undo merges and to redirect merged tools' pages | id, from_tool_id, into_tool_id, moved_aliases (JSON), moved_posts (JSON), from_status, merged_at, undone_at |
 | `posts` | One row per submission | id, source, external_id, url, canonical_url, title, author, posted_at, tool_id, post_type, version, classification (JSON), confidence, status (pending, published, queued, rejected, dropped), drop_reason, raw_output, classified_at |
 | `post_snapshots` | Daily engagement per post | post_id, date, score, comments |
 | `repo_snapshots` | Daily GitHub stats per tool | tool_id, date, stars, forks, language, license |
@@ -250,7 +250,8 @@ One setting controls how automatic the site is: `review_threshold`. Posts with c
   - **Aliases:** add (normalized like the resolver; shared hosts like `github.io` are refused) and remove.
   - **Posts:** the latest posts, with Move for queued ones.
   - **Hide or unhide:** hidden tools keep their aliases, so new posts about them stay hidden. Unhide returns the tool to published if any of its posts is published, otherwise to queued.
-  - **Merge and split:** merge two tools, or split a past merge.
+  - **Merge:** search for the tool to keep and review what moves (posts and aliases), then confirm. In one transaction, posts and aliases move to the target. The target fills blank fields from the merged tool, unions their tags, takes the earlier first-seen date, and becomes published if a moved post is published. The merged tool is hidden. Its future public page (`/tools/[slug]`) will redirect (301) to the target while the merge is active.
+  - **Split:** "Split back out" in the target's merge history undoes a merge. Posts and aliases still on the target go back, and the merged tool gets its old status back (`tool_merges.from_status`). Anything reassigned elsewhere since the merge stays where it is.
 - **Settings:** every key in `settings` (threshold, trending weights, category list, tag vocabulary, pre-filter keywords, model ID and reasoning effort, few-shot cap, GitHub topics and star floor), one form per setting, validated with the same zod schemas the Worker uses. Changes apply on the next job without a deploy. The tag vocabulary is edited as text (`# Group | hint` lines, then `slug: Label` lines), with the classifier's most requested missing tags listed below it.
 - **Reports:** open visitor reports with links to the tool, and a resolve button.
 - **Status panel:** last run per source, item count, error, and a warning when a source's count drops sharply below its 7-day average. Buttons to run a source now, start a backfill, and re-classify unreviewed queued posts (each with a confirmation step). A Trending card shows the last trending job and can run it now. Re-classify can also re-check posts dropped by a model other than the current `model_id`, since an older model's drops may hide real tools. These enqueue jobs through the site Worker's own queue bindings, so they need no API token; infrastructure actions (migrations, secrets, deploys) stay in GitHub Actions. An "In progress" section shows:

@@ -32,6 +32,8 @@ export interface ToolRow {
   is_open_source: number | null;
   last_post_at: string | null;
   posts: number;
+  /** Name of the tool this one was merged into (it is then hidden). */
+  merged_into: string | null;
 }
 
 export interface ToolFilters {
@@ -74,7 +76,9 @@ export async function listTools(db: D1Database, f: ToolFilters): Promise<{ tools
     db
       .prepare(
         `SELECT t.id, t.slug, t.name, t.github_repo, t.category, t.status, t.is_open_source, t.last_post_at,
-           (SELECT count(*) FROM posts p WHERE p.tool_id = t.id) AS posts
+           (SELECT count(*) FROM posts p WHERE p.tool_id = t.id) AS posts,
+           (SELECT i.name FROM tool_merges m JOIN tools i ON i.id = m.into_tool_id
+            WHERE m.from_tool_id = t.id AND m.undone_at IS NULL ORDER BY m.id DESC LIMIT 1) AS merged_into
          FROM tools t ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`,
       )
       .bind(...params, PAGE_SIZE, (page - 1) * PAGE_SIZE),
@@ -237,6 +241,8 @@ export async function setHidden(db: D1Database, id: number, hidden: boolean): Pr
     await db.prepare("UPDATE tools SET status = 'hidden' WHERE id = ?").bind(id).run();
     return;
   }
+  const merged = await db.prepare("SELECT 1 FROM tool_merges WHERE from_tool_id = ? AND undone_at IS NULL").bind(id).first();
+  if (merged) throw new ToolError("This tool was merged into another one. Split the merge to bring it back.");
   await db
     .prepare(
       `UPDATE tools SET status = CASE WHEN EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = tools.id AND p.status = 'published')
@@ -245,4 +251,129 @@ export async function setHidden(db: D1Database, id: number, hidden: boolean): Pr
     )
     .bind(id)
     .run();
+}
+
+export interface MergePreview {
+  from: { id: number; name: string };
+  into: { id: number; name: string; status: ToolStatus };
+  posts: { id: number; title: string }[];
+  aliases: { kind: string; value: string }[];
+}
+
+/** An active (not undone) merge that took this tool away, if any. */
+export async function mergedInto(db: D1Database, id: number): Promise<{ merge_id: number; id: number; name: string } | null> {
+  return db
+    .prepare(
+      `SELECT m.id AS merge_id, t.id, t.name FROM tool_merges m JOIN tools t ON t.id = m.into_tool_id
+       WHERE m.from_tool_id = ? AND m.undone_at IS NULL ORDER BY m.id DESC LIMIT 1`,
+    )
+    .bind(id)
+    .first<{ merge_id: number; id: number; name: string }>();
+}
+
+export async function mergePreview(db: D1Database, fromId: number, intoId: number): Promise<MergePreview> {
+  if (fromId === intoId) throw new ToolError("Pick a different tool to merge into.");
+  const [from, into, posts, aliases] = await db.batch([
+    db.prepare("SELECT id, name FROM tools WHERE id = ?").bind(fromId),
+    db.prepare("SELECT id, name, status FROM tools WHERE id = ?").bind(intoId),
+    db.prepare("SELECT id, title FROM posts WHERE tool_id = ? ORDER BY posted_at DESC, id DESC").bind(fromId),
+    db.prepare("SELECT kind, value FROM tool_aliases WHERE tool_id = ? ORDER BY kind, value").bind(fromId),
+  ]);
+  const f = from!.results[0] as MergePreview["from"] | undefined;
+  const i = into!.results[0] as MergePreview["into"] | undefined;
+  if (!f || !i) throw new ToolError("Tool not found.");
+  if (await mergedInto(db, fromId)) throw new ToolError(`${f.name} was already merged into another tool.`);
+  if (await mergedInto(db, intoId)) throw new ToolError(`${i.name} was merged into another tool; merge into that one instead.`);
+  return { from: f, into: i, posts: posts!.results as MergePreview["posts"], aliases: aliases!.results as MergePreview["aliases"] };
+}
+
+/**
+ * Merges `fromId` into `intoId` as one transaction: posts and aliases move, the merged
+ * tool is hidden (its public page will redirect to the target), and the target picks up
+ * blank fields, tags, dates and published status. The tool_merges row records what
+ * moved so splitMerge can undo it.
+ */
+export async function mergeTools(db: D1Database, fromId: number, intoId: number): Promise<number> {
+  const p = await mergePreview(db, fromId, intoId);
+  const from = await db.prepare("SELECT status, tags FROM tools WHERE id = ?").bind(fromId).first<{ status: string; tags: string }>();
+  const [, , , inserted] = await db.batch([
+    db.prepare("UPDATE posts SET tool_id = ?1 WHERE tool_id = ?2").bind(intoId, fromId),
+    db.prepare("UPDATE tool_aliases SET tool_id = ?1 WHERE tool_id = ?2").bind(intoId, fromId),
+    db
+      .prepare(
+        `UPDATE tools SET
+           github_repo = coalesce(tools.github_repo, f.github_repo),
+           homepage_url = coalesce(tools.homepage_url, f.homepage_url),
+           description = coalesce(tools.description, f.description),
+           category = coalesce(tools.category, f.category),
+           is_open_source = coalesce(tools.is_open_source, f.is_open_source),
+           tags = (SELECT json_group_array(DISTINCT value) FROM (SELECT value FROM json_each(tools.tags) UNION SELECT value FROM json_each(f.tags))),
+           first_seen_at = min(tools.first_seen_at, f.first_seen_at),
+           last_post_at = (SELECT max(p.posted_at) FROM posts p WHERE p.tool_id = tools.id),
+           is_active = 1,
+           status = CASE WHEN tools.status = 'queued' AND EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = tools.id AND p.status = 'published')
+             THEN 'published' ELSE tools.status END
+         FROM (SELECT * FROM tools WHERE id = ?2) AS f
+         WHERE tools.id = ?1`,
+      )
+      .bind(intoId, fromId),
+    db
+      .prepare("INSERT INTO tool_merges (from_tool_id, into_tool_id, moved_aliases, moved_posts, from_status) VALUES (?, ?, ?, ?, ?) RETURNING id")
+      .bind(fromId, intoId, JSON.stringify(p.aliases), JSON.stringify(p.posts.map((x) => x.id)), from!.status),
+    db.prepare("UPDATE tools SET status = 'hidden', is_active = 0 WHERE id = ?").bind(fromId),
+  ]);
+  return (inserted!.results[0] as { id: number }).id;
+}
+
+export interface MergeRecord {
+  id: number;
+  from_tool_id: number;
+  from_name: string;
+  merged_at: string;
+  posts: number;
+  aliases: number;
+}
+
+/** Active merges into this tool, newest first (for "Split back out"). */
+export async function mergeHistory(db: D1Database, intoId: number): Promise<MergeRecord[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.id, m.from_tool_id, t.name AS from_name, m.merged_at,
+         json_array_length(m.moved_posts) AS posts, json_array_length(m.moved_aliases) AS aliases
+       FROM tool_merges m JOIN tools t ON t.id = m.from_tool_id
+       WHERE m.into_tool_id = ? AND m.undone_at IS NULL ORDER BY m.id DESC`,
+    )
+    .bind(intoId)
+    .all<MergeRecord>();
+  return results;
+}
+
+/**
+ * Undoes a merge: posts and aliases that are still on the target go back, and the
+ * merged tool gets its old status back. Anything moved on since (to a third tool, or
+ * an alias removed) stays where it is. Returns how many posts came back.
+ */
+export async function splitMerge(db: D1Database, mergeId: number): Promise<{ fromId: number; posts: number }> {
+  const m = await db
+    .prepare("SELECT from_tool_id, into_tool_id, moved_posts, moved_aliases, from_status FROM tool_merges WHERE id = ? AND undone_at IS NULL")
+    .bind(mergeId)
+    .first<{ from_tool_id: number; into_tool_id: number; moved_posts: string; moved_aliases: string; from_status: string | null }>();
+  if (!m) throw new ToolError("That merge was already split or doesn't exist.");
+  const [posts] = await db.batch([
+    db
+      .prepare("UPDATE posts SET tool_id = ?1 WHERE tool_id = ?2 AND id IN (SELECT value FROM json_each(?3))")
+      .bind(m.from_tool_id, m.into_tool_id, m.moved_posts),
+    db
+      .prepare(
+        `UPDATE tool_aliases SET tool_id = ?1
+         WHERE tool_id = ?2 AND EXISTS (SELECT 1 FROM json_each(?3) j WHERE json_extract(j.value, '$.kind') = tool_aliases.kind AND json_extract(j.value, '$.value') = tool_aliases.value)`,
+      )
+      .bind(m.from_tool_id, m.into_tool_id, m.moved_aliases),
+    db
+      .prepare("UPDATE tools SET status = ?, is_active = 1, last_post_at = (SELECT max(posted_at) FROM posts WHERE tool_id = tools.id) WHERE id = ?")
+      .bind(m.from_status ?? "queued", m.from_tool_id),
+    db.prepare("UPDATE tools SET last_post_at = (SELECT max(posted_at) FROM posts WHERE tool_id = tools.id) WHERE id = ?").bind(m.into_tool_id),
+    db.prepare("UPDATE tool_merges SET undone_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(mergeId),
+  ]);
+  return { fromId: m.from_tool_id, posts: posts!.meta.changes };
 }

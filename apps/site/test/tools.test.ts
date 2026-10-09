@@ -1,6 +1,20 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ToolError, addAlias, getTool, listTools, removeAlias, setHidden, toolStatusCounts, updateTool } from "../src/lib/tools-admin.ts";
+import {
+  ToolError,
+  addAlias,
+  getTool,
+  listTools,
+  mergeHistory,
+  mergePreview,
+  mergeTools,
+  mergedInto,
+  removeAlias,
+  setHidden,
+  splitMerge,
+  toolStatusCounts,
+  updateTool,
+} from "../src/lib/tools-admin.ts";
 
 const db = env.DB;
 beforeEach(async () => {
@@ -126,5 +140,71 @@ describe("hide", () => {
     for (const id of [a, b]) await setHidden(db, id, false);
     expect((await getTool(db, a))!.status).toBe("published");
     expect((await getTool(db, b))!.status).toBe("queued");
+  });
+});
+
+describe("merge and split", () => {
+  it("moves posts and aliases, fills blanks, hides the merged tool, and splits back", async () => {
+    const keep = await tool("Worktrunk", { repo: "max/worktrunk", status: "queued" });
+    const dupe = await tool("Worktrunk CLI", { status: "published" });
+    await db.prepare("UPDATE tools SET homepage_url = 'https://wt.dev/', tags = '[\"cli\"]', first_seen_at = '2026-09-01T00:00:00.000Z' WHERE id = ?").bind(dupe).run();
+    await db.prepare("UPDATE tools SET tags = '[\"claude-code\"]' WHERE id = ?").bind(keep).run();
+    const kept = await post(keep, "queued", "2026-10-01T00:00:00.000Z");
+    const moved = await post(dupe, "published", "2026-10-06T00:00:00.000Z");
+
+    const preview = await mergePreview(db, dupe, keep);
+    expect(preview.posts.map((p) => p.id)).toEqual([moved]);
+    expect(preview.aliases).toEqual([{ kind: "name", value: "worktrunkcli" }]);
+
+    await mergeTools(db, dupe, keep);
+    const k = await getTool(db, keep);
+    expect(k).toMatchObject({
+      status: "published", // it now has a published post
+      homepage_url: "https://wt.dev/",
+      github_repo: "max/worktrunk",
+      first_seen_at: "2026-09-01T00:00:00.000Z",
+      last_post_at: "2026-10-06T00:00:00.000Z",
+      postCount: 2,
+    });
+    expect([...k!.tags].sort()).toEqual(["claude-code", "cli"]);
+    expect(k!.aliases.map((a) => a.value).sort()).toEqual(["max/worktrunk", "worktrunk", "worktrunkcli"]);
+    expect((await getTool(db, dupe))!.status).toBe("hidden");
+    expect(await mergedInto(db, dupe)).toMatchObject({ id: keep, name: "Worktrunk" });
+    const listed = await listTools(db, { status: "hidden" });
+    expect(listed.tools[0]).toMatchObject({ id: dupe, merged_into: "Worktrunk" });
+    await expect(setHidden(db, dupe, false)).rejects.toThrow("Split the merge");
+    await expect(mergeTools(db, dupe, keep)).rejects.toThrow("already merged");
+
+    const [history] = await mergeHistory(db, keep);
+    expect(history).toMatchObject({ from_tool_id: dupe, from_name: "Worktrunk CLI", posts: 1, aliases: 1 });
+    expect(await splitMerge(db, history!.id)).toEqual({ fromId: dupe, posts: 1 });
+    const d = await getTool(db, dupe);
+    expect(d).toMatchObject({ status: "published", postCount: 1, last_post_at: "2026-10-06T00:00:00.000Z" });
+    expect(d!.aliases).toEqual([{ kind: "name", value: "worktrunkcli" }]);
+    expect(await getTool(db, keep)).toMatchObject({ postCount: 1, last_post_at: "2026-10-01T00:00:00.000Z" });
+    expect(kept).toBeGreaterThan(0);
+    expect(await mergeHistory(db, keep)).toEqual([]);
+    await expect(splitMerge(db, history!.id)).rejects.toThrow("already split");
+  });
+
+  it("leaves posts that moved on after the merge where they are", async () => {
+    const a = await tool("A");
+    const b = await tool("B");
+    const c = await tool("C");
+    const p = await post(a);
+    await mergeTools(db, a, b);
+    await db.prepare("UPDATE posts SET tool_id = ? WHERE id = ?").bind(c, p).run(); // reassigned later
+    const [m] = await mergeHistory(db, b);
+    expect((await splitMerge(db, m!.id)).posts).toBe(0);
+    expect((await getTool(db, c))!.postCount).toBe(1);
+  });
+
+  it("refuses merging a tool into itself or into a merged-away tool", async () => {
+    const a = await tool("A");
+    const b = await tool("B");
+    const c = await tool("C");
+    await expect(mergePreview(db, a, a)).rejects.toThrow("different tool");
+    await mergeTools(db, b, c);
+    await expect(mergeTools(db, a, b)).rejects.toThrow("merge into that one instead");
   });
 });
