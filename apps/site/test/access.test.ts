@@ -2,7 +2,7 @@ import { type JWK, SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from
 import { beforeAll, describe, expect, it } from "vitest";
 import { accessConfig, guardAdmin, isAdminPath } from "../src/lib/access.ts";
 
-const TEAM = "radar-test.cloudflareaccess.com";
+const TEAM = "sb-test.cloudflareaccess.com";
 const AUD = "aud-tag-123";
 const env = { ACCESS_TEAM_DOMAIN: `https://${TEAM}/`, ACCESS_AUD: AUD };
 
@@ -28,7 +28,7 @@ const token = (over: { iss?: string; aud?: string; exp?: string; key?: CryptoKey
     .sign(over.key ?? privateKey);
 
 const request = (jwt?: string, init: RequestInit = {}) =>
-  new Request("https://radar.example/admin/queue", {
+  new Request("https://slopbucket.example/admin/queue", {
     ...init,
     headers: { ...(jwt ? { "cf-access-jwt-assertion": jwt } : {}), ...(init.headers as Record<string, string>) },
   });
@@ -84,7 +84,7 @@ describe("guardAdmin", () => {
     );
     expect("response" in cross && cross.response.status).toBe(403);
     const same = await guardAdmin(
-      new Request("https://radar.example/admin/queue/1", { method: "POST", headers: { "cf-access-jwt-assertion": jwt, origin: "https://radar.example" } }),
+      new Request("https://slopbucket.example/admin/queue/1", { method: "POST", headers: { "cf-access-jwt-assertion": jwt, origin: "https://slopbucket.example" } }),
       env,
       keys,
     );

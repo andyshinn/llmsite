@@ -1,12 +1,12 @@
-import { type FetchJob, type TrendingJob, classifyJobSchema, fetchJobSchema, trendingJobSchema } from "@radar/core";
+import { type FetchJob, type TrendingJob, classifyJobSchema, fetchJobSchema, trendingJobSchema } from "@slop-bucket/core";
 import { requeueStalePending, runClassifyJob } from "./classify-job.ts";
 import { depsFromEnv } from "./deps.ts";
 import { runFetchJob } from "./fetch-job.ts";
 import { runTrendingJob } from "./trending-job.ts";
 import { ADAPTERS } from "./sources/index.ts";
 
-export const FETCH_QUEUE = "radar-fetch";
-export const CLASSIFY_QUEUE = "radar-classify";
+export const FETCH_QUEUE = "sb-fetch";
+export const CLASSIFY_QUEUE = "sb-classify";
 /** An hour after the daily fetch, so most new posts are stored and classified. */
 export const TRENDING_CRON = "0 7 * * *";
 

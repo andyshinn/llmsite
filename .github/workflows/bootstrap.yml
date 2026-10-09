@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  D1_NAME: radar
-  R2_BUCKET: radar-articles
-  QUEUES: radar-fetch radar-classify
+  D1_NAME: sb
+  R2_BUCKET: sb-articles
+  QUEUES: sb-fetch sb-classify
 
 jobs:
   bootstrap:

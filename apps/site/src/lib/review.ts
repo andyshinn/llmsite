@@ -1,4 +1,4 @@
-import { type Classification, classificationSchema, getSetting, resolveTool, tagSlugs } from "@radar/core";
+import { type Classification, classificationSchema, getSetting, resolveTool, tagSlugs } from "@slop-bucket/core";
 
 export interface QueuePost {
   id: number;

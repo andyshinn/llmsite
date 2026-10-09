@@ -1,0 +1,210 @@
+name: Rename to Slop Bucket
+
+# One-off move from the radar-* Cloudflare resources to sb-*. Run from the Actions tab.
+# Delete this workflow and .github/scripts/copy-data.mjs once "cleanup" has run.
+#
+# migrate: deletes radar-ingest (so nothing writes to the old data), creates the sb-*
+#          resources, copies the D1 data and R2 article text, commits the new
+#          database_id, deploys sb-ingest and sb-site (on slopbucket.app), copies the
+#          GH_API_TOKEN Worker secret, then deletes radar-site. Safe to re-run: resources
+#          are reused and the copy replaces an earlier copy.
+# cleanup: deletes the old radar D1 database, R2 bucket, queues and AI Gateway.
+#          Cannot be undone; run it once slopbucket.app looks right.
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: Which step
+        type: choice
+        options: [migrate, cleanup]
+      confirm:
+        description: Type "slop bucket" to confirm
+        type: string
+        required: true
+
+permissions:
+  contents: write # push the database_id commit to main
+
+concurrency:
+  group: rename
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  OLD_D1: radar
+  OLD_R2: radar-articles
+  OLD_QUEUES: radar-fetch radar-classify
+  OLD_GATEWAY: radar
+  D1_NAME: sb
+  R2_BUCKET: sb-articles
+  QUEUES: sb-fetch sb-classify
+
+jobs:
+  migrate:
+    if: inputs.step == 'migrate'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check inputs and secrets
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          [ "$CONFIRM" = "slop bucket" ] || { echo "::error::Type \"slop bucket\" in the confirm input"; exit 1; }
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::Repo secret CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::Repo secret CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: ./.github/actions/setup
+
+      # Stops the old cron and queue consumers, so the copy is not missing late writes.
+      # Posts still waiting in the old queues stay pending and the daily run re-enqueues them.
+      - name: Delete radar-ingest
+        run: |
+          code=$(curl -sS -o out.json -w '%{http_code}' -X DELETE -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/radar-ingest?force=true")
+          case "$code" in
+            200) echo "Deleted radar-ingest" ;;
+            404) echo "radar-ingest already deleted" ;;
+            *) echo "::error::Deleting radar-ingest failed ($code): $(jq -c .errors out.json)"; exit 1 ;;
+          esac
+
+      # Same as bootstrap.yml. Run wrangler from the repo root so it never picks up an app config.
+      - name: Create sb resources
+        id: d1
+        run: |
+          wrangler=apps/ingest/node_modules/.bin/wrangler
+          find_id() { "$wrangler" d1 list --json | jq -r --arg n "$D1_NAME" '.[] | select(.name == $n) | .uuid'; }
+          id=$(find_id)
+          [ -n "$id" ] || { "$wrangler" d1 create "$D1_NAME" --update-config=false; id=$(find_id); }
+          [ -n "$id" ] || { echo "::error::Could not find D1 database id"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+          "$wrangler" r2 bucket info "$R2_BUCKET" > /dev/null 2>&1 || "$wrangler" r2 bucket create "$R2_BUCKET"
+          for q in $QUEUES; do
+            "$wrangler" queues info "$q" > /dev/null 2>&1 || "$wrangler" queues create "$q"
+          done
+
+      - name: Point wrangler.jsonc at the new database
+        env:
+          D1_ID: ${{ steps.d1.outputs.id }}
+        run: |
+          sed -i -E "s/\"database_id\": \"[^\"]*\"/\"database_id\": \"$D1_ID\"/" apps/ingest/wrangler.jsonc apps/site/wrangler.jsonc
+
+      - name: Apply D1 migrations
+        working-directory: apps/ingest
+        run: pnpm exec wrangler d1 migrations apply DB --remote
+
+      - name: Copy D1 data
+        run: |
+          node .github/scripts/copy-data.mjs dump "$OLD_D1" dump.sql
+          (cd apps/ingest && pnpm exec wrangler d1 execute DB --remote --yes --file ../../dump.sql)
+          node .github/scripts/copy-data.mjs verify "$OLD_D1" "$D1_NAME" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Copy R2 article text
+        run: node .github/scripts/copy-data.mjs r2-copy "$OLD_D1" "$OLD_R2" "$R2_BUCKET" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit database_id
+        run: |
+          if git diff --quiet; then
+            echo "wrangler.jsonc already has the new database_id"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "Rename: point wrangler.jsonc at the sb D1 database"
+            git push origin HEAD:main
+          fi
+
+  deploy:
+    needs: migrate
+    uses: ./.github/workflows/deploy.yml
+    with:
+      ref: main
+    secrets: inherit
+
+  finish:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: ./.github/actions/setup
+
+      - name: Copy GH_API_TOKEN to sb-ingest
+        working-directory: apps/ingest
+        env:
+          VALUE: ${{ secrets.GH_API_TOKEN }}
+        run: |
+          if [ -n "$VALUE" ]; then
+            printf '%s' "$VALUE" | pnpm exec wrangler secret put GH_API_TOKEN
+          else
+            echo "::warning::Repo secret GH_API_TOKEN not found, so sb-ingest has no GitHub token. Add it, then run Ops > set-secret."
+          fi
+
+      - name: Delete radar-site
+        run: |
+          code=$(curl -sS -o out.json -w '%{http_code}' -X DELETE -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/radar-site?force=true")
+          case "$code" in
+            200) echo "Deleted radar-site" ;;
+            404) echo "radar-site already deleted" ;;
+            *) echo "::error::Deleting radar-site failed ($code): $(jq -c .errors out.json)"; exit 1 ;;
+          esac
+          {
+            echo "Done. Check https://slopbucket.app/api/health and /admin."
+            echo "When it looks right, run this workflow again with step \"cleanup\" to delete the old radar resources."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    if: inputs.step == 'cleanup'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check inputs
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: '[ "$CONFIRM" = "slop bucket" ] || { echo "::error::Type \"slop bucket\" in the confirm input"; exit 1; }'
+
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+
+      - name: Delete radar resources
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          # del <what> <path>: DELETE that tolerates "already gone".
+          del() {
+            code=$(curl -sS -o out.json -w '%{http_code}' -X DELETE -H "$auth" "$api$2")
+            case "$code" in
+              200) echo "Deleted $1" | tee -a "$GITHUB_STEP_SUMMARY" ;;
+              404) echo "$1 already deleted" ;;
+              *) echo "::error::Deleting $1 failed ($code): $(jq -c .errors out.json)"; exit 1 ;;
+            esac
+          }
+
+          # Refuse to run before migrate finished.
+          new_d1=$(curl -fsS -H "$auth" "$api/d1/database?name=$D1_NAME" | jq -r --arg n "$D1_NAME" '.result[] | select(.name == $n) | .uuid')
+          grep -q "\"database_id\": \"$new_d1\"" apps/ingest/wrangler.jsonc \
+            || { echo "::error::wrangler.jsonc does not point at the $D1_NAME database yet. Run step migrate first."; exit 1; }
+
+          del radar-ingest "/workers/scripts/radar-ingest?force=true"
+          del radar-site "/workers/scripts/radar-site?force=true"
+
+          queues=$(curl -fsS -H "$auth" "$api/queues?per_page=100")
+          for q in $OLD_QUEUES; do
+            id=$(jq -r --arg n "$q" '.result[] | select(.queue_name == $n) | .queue_id' <<< "$queues")
+            if [ -n "$id" ]; then del "$q" "/queues/$id"; else echo "$q already deleted"; fi
+          done
+
+          # A bucket must be empty before it can be deleted; its keys come from the old posts table.
+          old_d1=$(curl -fsS -H "$auth" "$api/d1/database?name=$OLD_D1" | jq -r --arg n "$OLD_D1" '.result[] | select(.name == $n) | .uuid')
+          if [ -n "$old_d1" ]; then
+            if curl -fsS -o /dev/null -H "$auth" "$api/r2/buckets/$OLD_R2"; then
+              node .github/scripts/copy-data.mjs r2-delete "$OLD_D1" "$OLD_R2"
+            fi
+          fi
+          del "$OLD_R2" "/r2/buckets/$OLD_R2"
+          if [ -n "$old_d1" ]; then del "$OLD_D1 (D1)" "/d1/database/$old_d1"; else echo "$OLD_D1 (D1) already deleted"; fi
+          del "$OLD_GATEWAY (AI Gateway)" "/ai-gateway/gateways/$OLD_GATEWAY"

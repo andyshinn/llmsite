@@ -1,10 +1,10 @@
-# AI Coding Tools Radar — Design Doc
+# Slop Bucket — Design Doc
 
-As of Oct 3, 2026
+As of Oct 9, 2026
 
 ## Overview
 
-A public website that discovers new AI coding tools daily from developer communities and ranks them by what is trending. It runs entirely on Cloudflare, with a target cost of $1–2 per day. "AI Coding Tools Radar" is a working title.
+A public website that discovers new AI coding tools daily from developer communities and ranks them by what is trending. It runs entirely on Cloudflare, with a target cost of $1–2 per day. It is called Slop Bucket and lives at https://slopbucket.app.
 
 **In scope:** developer tools that use AI to help write, run or manage code. This means coding agents, AI IDEs and editor extensions, CLIs, and tools built for AI coding-agent workflows (plugins, skills, hooks, monitors, orchestrators). Every MCP server is in scope too, whatever it is for, in its own category: `mcp-dev` when it helps with software development, `mcp-general` otherwise. Both open-source and closed-source tools are included; closed-source tools are flagged as such.
 
@@ -76,6 +76,8 @@ flowchart TD
     site["Astro site Worker<br/>pages, search, reports, edge cache"] -- reads --> d1
     admin["/admin<br/>behind Cloudflare Access"] --> d1
 ```
+
+Cloudflare resources use an `sb` prefix: Workers `sb-ingest` and `sb-site`, D1 database `sb`, R2 bucket `sb-articles`, queues `sb-fetch` and `sb-classify`, and AI Gateway `sb`. Where a slug is needed (packages, user agent) it is `slop-bucket`.
 
 Only the classifier step costs meaningful money. The site never calls Workers AI, so traffic spikes do not raise AI costs.
 
@@ -212,7 +214,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 
 ## Frontend
 
-The site is Astro with the Cloudflare adapter, deployed as a Worker with static assets. Pages are server-rendered from D1 and cached at the edge, with the cache cleared after each daily run. That keeps pages fast and indexable without a rebuild per day.
+The site is Astro with the Cloudflare adapter, deployed as a Worker with static assets on the custom domain `slopbucket.app` (no `workers.dev` URL). Pages are server-rendered from D1 and cached at the edge, with the cache cleared after each daily run. That keeps pages fast and indexable without a rebuild per day.
 
 | Route | Content |
 | --- | --- |
@@ -274,7 +276,7 @@ Model prices are approximate, taken from third-party trackers, and should be con
 
 **Deploy:** GitHub Actions on GitHub-hosted runners with `cloudflare/wrangler-action`. On push to `main`, it runs type checks and tests, applies D1 migrations, then deploys. The API token and GitHub (and later Product Hunt) credentials are kept in repo secrets and Worker secrets.
 
-**Cost cap:** every Workers AI call goes through an AI Gateway (`radar`) with a daily spend limit, defined in `infra/ai-gateway.json` and applied by `deploy.yml`. When the limit is reached the gateway rejects AI calls; those posts stay `pending` and the next daily run re-enqueues them (up to 5,000, about what the cap buys in a day), so a large backfill spreads over several days instead of running up the bill. A Cloudflare budget alert (Billing > Billable Usage) emails when the month's usage-based spend crosses a set amount.
+**Cost cap:** every Workers AI call goes through an AI Gateway (`sb`) with a daily spend limit, defined in `infra/ai-gateway.json` and applied by `deploy.yml`. When the limit is reached the gateway rejects AI calls; those posts stay `pending` and the next daily run re-enqueues them (up to 5,000, about what the cap buys in a day), so a large backfill spreads over several days instead of running up the bill. A Cloudflare budget alert (Billing > Billable Usage) emails when the month's usage-based spend crosses a set amount.
 
 **Monitoring:** the admin status panel only, as decided. Each run writes `source_runs`, and the panel flags errors and sudden drops in item counts.
 
@@ -291,7 +293,6 @@ Model prices are approximate, taken from third-party trackers, and should be con
 
 **Open questions:**
 
-- Site name and domain.
 - When Product Hunt API access is granted, add its adapter.
 
 ## Phone-only workflow
@@ -304,6 +305,7 @@ All development and operations happen from a phone, so nothing may require a loc
 | `ci.yml` | Pull request | Type checks, unit tests, migration dry run |
 | `deploy.yml` | Push to `main` | Applies D1 migrations, then deploys both Workers |
 | `eval.yml` | Manual, with inputs | Scores a classifier model and the current prompt against the hand-labeled set in `evals/classifier` (through the AI Gateway, so the spend cap applies). Model and categories default to production's settings; either can be overridden to try a candidate |
+| `rename.yml` | Manual, one-off | Moves the old `radar-*` resources to `sb-*`: copies D1 and R2 data, deploys the new Workers, deletes the old ones; a second `cleanup` run deletes the old D1, bucket, queues and gateway. Delete it (and `.github/scripts/copy-data.mjs`) after cleanup |
 | `ops.yml` | Manual, with inputs | Fallback for when the admin is unavailable, and for infrastructure. Runs one action: apply migrations, run a read-only SQL query, set a Worker secret, start the backfill, trigger one source now, or re-classify unreviewed queued posts after a classifier change |
 
 **Setup done in a phone browser:** the Cloudflare API token, Cloudflare Access for `/admin`, and GitHub repo secrets. The GitHub app cannot manage secrets, so use the browser in desktop-site mode.

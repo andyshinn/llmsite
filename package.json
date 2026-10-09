@@ -1,5 +1,5 @@
 {
-  "name": "radar",
+  "name": "slop-bucket",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.8.1",
@@ -10,6 +10,6 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "build": "pnpm -r build",
-    "db:migrate:local": "pnpm --filter @radar/ingest exec wrangler d1 migrations apply DB --local"
+    "db:migrate:local": "pnpm --filter @slop-bucket/ingest exec wrangler d1 migrations apply DB --local"
   }
 }

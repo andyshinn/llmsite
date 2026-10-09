@@ -1,15 +1,15 @@
 // Scores the classifier against the hand-labeled set in evals/classifier.
-//   pnpm --filter @radar/ingest eval:classifier -- [--model=@cf/zai-org/glm-5.3-flash] [--reasoning=low] [--limit=40]
+//   pnpm --filter @slop-bucket/ingest eval:classifier -- [--model=@cf/zai-org/glm-5.3-flash] [--reasoning=low] [--limit=40]
 // The model and category list default to production's settings (read from D1), so the eval
 // matches what the Worker runs; pass --model, --categories=a,b,other or --tags=groups.json
 // (the `tags` setting's JSON) to try something else.
 // Credentials: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID, or a local `wrangler login`.
-// Calls go through the "radar" AI Gateway, so the daily spend cap applies to evals too.
+// Calls go through the "sb" AI Gateway, so the daily spend cap applies to evals too.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { tagGroupsSchema } from "@radar/core";
+import { tagGroupsSchema } from "@slop-bucket/core";
 import { classifyPost } from "../src/classifier.ts";
 import { getArticleText } from "../src/content.ts";
 import type { Deps, RunModel } from "../src/deps.ts";
@@ -28,7 +28,7 @@ const { values: args } = parseArgs({
     concurrency: { type: "string", default: "4" },
     // Workers Paid models (GLM, DeepSeek) allow 20 requests/minute; others allow 300.
     rpm: { type: "string", default: "18" },
-    gateway: { type: "string", default: "radar" },
+    gateway: { type: "string", default: "sb" },
     out: { type: "string" },
   },
 });

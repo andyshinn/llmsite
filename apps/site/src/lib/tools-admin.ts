@@ -6,7 +6,7 @@ import {
   normalizeHomepage,
   normalizeToolName,
   tagSlugs,
-} from "@radar/core";
+} from "@slop-bucket/core";
 
 export class ToolError extends Error {}
 

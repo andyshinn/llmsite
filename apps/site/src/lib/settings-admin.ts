@@ -1,4 +1,4 @@
-import { SETTING_KEYS, type SettingKey, type TagGroups, settingSchemas } from "@radar/core";
+import { SETTING_KEYS, type SettingKey, type TagGroups, settingSchemas } from "@slop-bucket/core";
 
 export type FieldKind = "number" | "integer" | "text" | "lines" | "weights" | "reasoning" | "taggroups";
 

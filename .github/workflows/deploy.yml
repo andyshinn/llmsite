@@ -5,6 +5,13 @@ on:
     branches: [main]
   # Also dispatched by bootstrap.yml once resources exist.
   workflow_dispatch:
+  # Called by rename.yml after it commits the new database_id.
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit or branch to deploy (empty for the triggering commit)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -18,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup
       - name: Type check
         run: pnpm typecheck
@@ -29,7 +38,7 @@ jobs:
         run: |
           if grep -q '"database_id": "00000000-0000-0000-0000-000000000000"' apps/ingest/wrangler.jsonc; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Cloudflare resources not created yet. Run the Bootstrap workflow; it starts a deploy when done."
+            echo "::notice::wrangler.jsonc has no database_id yet. Run the Rename to Slop Bucket workflow (or Bootstrap for a fresh account); it deploys when done."
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
@@ -80,10 +89,9 @@ jobs:
 
       - name: Build site
         if: steps.bootstrap.outputs.ready == 'true'
-        run: pnpm --filter @radar/site build
+        run: pnpm --filter @slop-bucket/site build
 
       - name: Deploy site Worker
-        id: site
         if: steps.bootstrap.outputs.ready == 'true'
         uses: cloudflare/wrangler-action@v4
         with:
@@ -95,8 +103,6 @@ jobs:
 
       - name: Summary
         if: steps.bootstrap.outputs.ready == 'true'
-        env:
-          SITE_URL: ${{ steps.site.outputs.deployment-url }}
         run: |
-          echo "Site: $SITE_URL" >> "$GITHUB_STEP_SUMMARY"
-          echo "Health check: $SITE_URL/api/health" >> "$GITHUB_STEP_SUMMARY"
+          echo "Site: https://slopbucket.app" >> "$GITHUB_STEP_SUMMARY"
+          echo "Health check: https://slopbucket.app/api/health" >> "$GITHUB_STEP_SUMMARY"

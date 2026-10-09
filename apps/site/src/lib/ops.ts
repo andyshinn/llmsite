@@ -8,7 +8,7 @@ import {
   backfillRunCount,
   fetchJobs,
   resetUnreviewedQueued,
-} from "@radar/core";
+} from "@slop-bucket/core";
 
 export interface SourceRun {
   mode: string;

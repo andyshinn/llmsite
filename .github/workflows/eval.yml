@@ -1,7 +1,7 @@
 name: Eval
 
 # Scores a classifier model and the current prompt against the hand-labeled set in
-# evals/classifier. Calls go through the "radar" AI Gateway, so the daily spend cap
+# evals/classifier. Calls go through the "sb" AI Gateway, so the daily spend cap
 # applies. A full run of 150 posts costs a few cents to about $0.30 depending on the
 # model, and takes ~10 minutes at 18 requests/minute.
 

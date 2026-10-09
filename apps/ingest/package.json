@@ -1,5 +1,5 @@
 {
-  "name": "@radar/ingest",
+  "name": "@slop-bucket/ingest",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
-    "@radar/core": "workspace:*",
+    "@slop-bucket/core": "workspace:*",
     "linkedom": "^0.18.13",
     "zod": "^4.6.5"
   },

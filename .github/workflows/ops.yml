@@ -55,7 +55,7 @@ concurrency:
 env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-  FETCH_QUEUE: radar-fetch
+  FETCH_QUEUE: sb-fetch
   SOURCES: hn lobsters github
 
 jobs:
@@ -147,7 +147,7 @@ jobs:
         run: |
           # Same statements the admin status panel runs (packages/core/src/ops.ts).
           node --input-type=module -e '
-            import { RESET_OLD_MODEL_DROPS_SQL, RESET_UNREVIEWED_QUEUED_SQL } from "@radar/core";
+            import { RESET_OLD_MODEL_DROPS_SQL, RESET_UNREVIEWED_QUEUED_SQL } from "@slop-bucket/core";
             const sql = [...RESET_UNREVIEWED_QUEUED_SQL, ...(process.env.OLD_DROPS === "true" ? [RESET_OLD_MODEL_DROPS_SQL] : [])];
             console.log(sql.join(";\n") + ";");' > reclassify.sql
           pnpm exec wrangler d1 execute DB --remote --file reclassify.sql
@@ -157,8 +157,8 @@ jobs:
 
           api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
           auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-          queue_id=$(curl -fsS -H "$auth" "$api?per_page=100" | jq -r '.result[] | select(.queue_name == "radar-classify") | .queue_id')
-          [ -n "$queue_id" ] || { echo "::error::Queue radar-classify not found."; exit 1; }
+          queue_id=$(curl -fsS -H "$auth" "$api?per_page=100" | jq -r '.result[] | select(.queue_name == "sb-classify") | .queue_id')
+          [ -n "$queue_id" ] || { echo "::error::Queue sb-classify not found."; exit 1; }
           for offset in $(seq 0 100 $((total - 1))); do
             jq -c --argjson o "$offset" '{messages: .[$o:$o + 100]}' jobs.json \
               | curl -fsS -X POST -H "$auth" -H "Content-Type: application/json" --data @- "$api/$queue_id/messages/batch" > /dev/null

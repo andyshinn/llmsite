@@ -1,10 +1,13 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "radar-site",
+  "name": "sb-site",
   "main": "@astrojs/cloudflare/entrypoints/server",
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
+  // Served only on the custom domain (the zone is in this Cloudflare account; the
+  // API token needs Zone > Workers Routes > Edit on it).
+  "routes": [{ "pattern": "slopbucket.app", "custom_domain": true }],
+  "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true },
   "assets": { "directory": "./dist", "binding": "ASSETS" },
@@ -16,23 +19,23 @@
     "ACCESS_TEAM_DOMAIN": "andyshinn.cloudflareaccess.com"
   },
 
-  // The admin status panel enqueues fetch and classify jobs; radar-ingest consumes them.
+  // The admin status panel enqueues fetch and classify jobs; sb-ingest consumes them.
   "queues": {
     "producers": [
-      { "binding": "FETCH_QUEUE", "queue": "radar-fetch" },
-      { "binding": "CLASSIFY_QUEUE", "queue": "radar-classify" }
+      { "binding": "FETCH_QUEUE", "queue": "sb-fetch" },
+      { "binding": "CLASSIFY_QUEUE", "queue": "sb-classify" }
     ]
   },
 
-  // Extracted article text (written by radar-ingest), shown in the admin review queue.
-  "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "radar-articles" }],
+  // Extracted article text (written by sb-ingest), shown in the admin review queue.
+  "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "sb-articles" }],
 
-  // database_id is written by .github/workflows/bootstrap.yml.
+  // database_id is written by .github/workflows/bootstrap.yml (or rename.yml).
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "radar",
-      "database_id": "1857c1e6-46e4-4de4-bff2-d8148d5a3880",
+      "database_name": "sb",
+      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "../../migrations"
     }
   ]

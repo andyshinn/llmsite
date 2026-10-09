@@ -1,4 +1,4 @@
-import type { FetchJob, NormalizedPost, Source } from "@radar/core";
+import type { FetchJob, NormalizedPost, Source } from "@slop-bucket/core";
 import type { Fetcher } from "../deps.ts";
 
 export interface Window {

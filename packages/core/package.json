@@ -1,5 +1,5 @@
 {
-  "name": "@radar/core",
+  "name": "@slop-bucket/core",
   "private": true,
   "type": "module",
   "exports": {

@@ -1,6 +1,6 @@
 import { parseHTML } from "linkedom";
 import { z } from "zod";
-import { type NormalizedPost, getSetting } from "@radar/core";
+import { type NormalizedPost, getSetting } from "@slop-bucket/core";
 import { USER_AGENT } from "../http.ts";
 import type { Adapter, SourceContext } from "./types.ts";
 
