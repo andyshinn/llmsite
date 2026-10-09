@@ -1,0 +1,199 @@
+---
+import { env } from "cloudflare:workers";
+import { getSetting } from "@radar/core";
+import Icon from "../../../../components/Icon.astro";
+import Notice from "../../../../components/Notice.astro";
+import Admin from "../../../../layouts/Admin.astro";
+import { ToolError, addAlias, getTool, removeAlias, setHidden, updateTool } from "../../../../lib/tools-admin.ts";
+import { SOURCE_LABELS, btnPrimary, btnReject, btnSecondary, card, input, label, safeHref, timeAgo } from "../../../../lib/ui.ts";
+
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id <= 0) return Astro.redirect("/admin/tools", 302);
+
+let error: { section: string; message: string } | null = null;
+let submitted: FormData | null = null;
+if (Astro.request.method === "POST") {
+  const form = await Astro.request.formData();
+  const action = String(form.get("action"));
+  try {
+    if (action === "save") {
+      submitted = form;
+      await updateTool(env.DB, id, form);
+    } else if (action === "add_alias") {
+      await addAlias(env.DB, id, String(form.get("kind")), String(form.get("value") ?? ""));
+    } else if (action === "remove_alias") {
+      await removeAlias(env.DB, id, String(form.get("kind")), String(form.get("value")));
+    } else if (action === "hide" || action === "unhide") {
+      await setHidden(env.DB, id, action === "hide");
+    } else {
+      throw new ToolError("Unknown action.");
+    }
+    return Astro.redirect(`/admin/tools/${id}?done=${action}${action.includes("alias") ? "#aliases" : ""}`, 303);
+  } catch (err) {
+    if (!(err instanceof ToolError)) throw err;
+    error = { section: action.includes("alias") ? "aliases" : action, message: err.message };
+    Astro.response.status = 422;
+  }
+}
+
+const [tool, categories, tagGroups] = await Promise.all([getTool(env.DB, id), getSetting(env.DB, "categories"), getSetting(env.DB, "tags")]);
+if (!tool) return Astro.redirect("/admin/tools", 302);
+
+// Re-show what was submitted after an error; otherwise the stored values.
+const field = (k: string, stored: unknown) => (submitted ? String(submitted.get(k) ?? "") : stored == null ? "" : String(stored));
+const selectedTags = new Set(submitted ? submitted.getAll("tags").map(String) : tool.tags);
+const openValue = field("is_open_source", tool.is_open_source === null ? "" : tool.is_open_source ? "true" : "false");
+const done = Astro.url.searchParams.get("done");
+const doneMessage: Record<string, string> = {
+  save: "Saved.",
+  add_alias: "Alias added.",
+  remove_alias: "Alias removed.",
+  hide: "Hidden. It no longer appears on public pages.",
+  unhide: "Visible again.",
+};
+const homepage = safeHref(tool.homepage_url);
+---
+
+<Admin title={`Edit ${tool.name}`} section="tools">
+  <a href="/admin/tools" class="text-sm font-medium text-brand-700">← All tools</a>
+  <div class="mt-2 flex items-start justify-between gap-3">
+    <h1 class="text-lg font-semibold break-words">{tool.name}</h1>
+    <span class="shrink-0 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{tool.status}</span>
+  </div>
+  <p class="mt-1 text-sm text-gray-600">
+    First seen {timeAgo(tool.first_seen_at)} · {tool.postCount} {tool.postCount === 1 ? "post" : "posts"}
+    {homepage && <> · <a href={homepage} class="font-medium text-brand-700" target="_blank" rel="noopener noreferrer">Website</a></>}
+    {tool.github_repo && <> · <a href={`https://github.com/${tool.github_repo}`} class="font-medium text-brand-700" target="_blank" rel="noopener noreferrer">GitHub</a></>}
+  </p>
+
+  {done && doneMessage[done] && <div class="mt-4"><Notice>{doneMessage[done]}</Notice></div>}
+
+  <form method="post" class={`${card} mt-4 space-y-4 p-4`}>
+    <input type="hidden" name="action" value="save" />
+    {error?.section === "save" && <Notice tone="error">{error.message}</Notice>}
+    <div>
+      <label for="name" class={label}>Name</label>
+      <input id="name" name="name" value={field("name", tool.name)} required class={`${input} mt-1`} autocomplete="off" />
+    </div>
+    <div>
+      <label for="slug" class={label}>Slug <span class="font-normal text-gray-500">(public URL: /tools/slug)</span></label>
+      <input id="slug" name="slug" value={field("slug", tool.slug)} required class={`${input} mt-1 font-mono text-sm`} autocomplete="off" autocapitalize="off" />
+    </div>
+    <div>
+      <label for="description" class={label}>Description <span class="font-normal text-gray-500">(under 140 characters; describe the tool, not a post)</span></label>
+      <textarea id="description" name="description" rows="3" maxlength="140" class={`${input} mt-1`}>{field("description", tool.description)}</textarea>
+    </div>
+    <div>
+      <label for="category" class={label}>Category</label>
+      <select id="category" name="category" class={`${input} mt-1`}>
+        {categories.map((c) => <option value={c} selected={c === field("category", tool.category)}>{c}</option>)}
+      </select>
+    </div>
+    <fieldset>
+      <legend class={label}>Tags</legend>
+      {tagGroups.map((g) => (
+        <div class="mt-2">
+          <p class="text-xs font-medium text-gray-500">{g.label}</p>
+          <div class="mt-1 flex flex-wrap gap-2">
+            {g.tags.map((t) => (
+              <label class="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm ring-1 ring-gray-300 ring-inset has-checked:bg-brand-50 has-checked:ring-brand-600">
+                <input type="checkbox" name="tags" value={t.slug} checked={selectedTags.has(t.slug)} class="size-4 accent-brand-600" />
+                {t.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </fieldset>
+    <div>
+      <label for="homepage_url" class={label}>Homepage</label>
+      <input id="homepage_url" name="homepage_url" type="url" value={field("homepage_url", tool.homepage_url)} class={`${input} mt-1`} autocomplete="off" autocapitalize="off" />
+    </div>
+    <div>
+      <label for="github_repo" class={label}>GitHub repo <span class="font-normal text-gray-500">(owner/repo)</span></label>
+      <input id="github_repo" name="github_repo" value={field("github_repo", tool.github_repo)} class={`${input} mt-1 font-mono text-sm`} autocomplete="off" autocapitalize="off" />
+    </div>
+    <fieldset>
+      <legend class={label}>Source</legend>
+      <div class="mt-1 grid grid-cols-3 gap-2">
+        {[["true", "Open"], ["false", "Closed"], ["", "Unknown"]].map(([value, text]) => (
+          <label class="flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm ring-1 ring-gray-300 ring-inset has-checked:bg-brand-50 has-checked:ring-brand-600">
+            <input type="radio" name="is_open_source" value={value} checked={openValue === value} class="size-4 accent-brand-600" />
+            {text}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+    <p class="text-xs text-gray-500">A new repo, homepage domain or name is also added as an alias, so future posts land here.</p>
+    <button type="submit" class={`${btnPrimary} w-full`}>Save changes</button>
+  </form>
+
+  <section id="aliases" class="mt-6 scroll-mt-28">
+    <h2 class="text-lg font-semibold">Aliases</h2>
+    <p class="mt-1 text-sm text-gray-600">New posts with any of these repos, domains or names resolve to this tool.</p>
+    {error?.section === "aliases" && <div class="mt-2"><Notice tone="error">{error.message}</Notice></div>}
+    <ul class={`${card} mt-2 divide-y divide-gray-100`}>
+      {tool.aliases.length === 0 && <li class="p-4 text-sm text-gray-600">No aliases.</li>}
+      {tool.aliases.map((a) => (
+        <li class="flex items-center justify-between gap-3 py-1 pr-1 pl-4">
+          <span class="min-w-0">
+            <span class="mr-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">{a.kind}</span>
+            <span class="font-mono text-sm break-all">{a.value}</span>
+          </span>
+          <form method="post">
+            <input type="hidden" name="action" value="remove_alias" />
+            <input type="hidden" name="kind" value={a.kind} />
+            <input type="hidden" name="value" value={a.value} />
+            <button type="submit" class="flex size-11 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-red-700" aria-label={`Remove alias ${a.value}`}>
+              <Icon name="xMark" />
+            </button>
+          </form>
+        </li>
+      ))}
+    </ul>
+    <form method="post" class="mt-2 grid grid-cols-[auto_1fr_auto] gap-2">
+      <input type="hidden" name="action" value="add_alias" />
+      <select name="kind" aria-label="Alias kind" class={input}>
+        <option value="repo">repo</option>
+        <option value="domain">domain</option>
+        <option value="name">name</option>
+      </select>
+      <input name="value" placeholder="owner/repo, example.dev or a name" aria-label="Alias value" required class={input} autocomplete="off" autocapitalize="off" />
+      <button type="submit" class={btnSecondary}>Add</button>
+    </form>
+  </section>
+
+  <section class="mt-6">
+    <h2 class="text-lg font-semibold">Posts</h2>
+    <ul class={`${card} mt-2 divide-y divide-gray-100`}>
+      {tool.posts.length === 0 && <li class="p-4 text-sm text-gray-600">No posts.</li>}
+      {tool.posts.map((p) => (
+        <li class="flex items-center justify-between gap-3 px-4 py-3">
+          <span class="min-w-0">
+            <a href={safeHref(p.url) ?? "#"} class="block font-medium break-words text-gray-900 hover:text-brand-700" target="_blank" rel="noopener noreferrer">{p.title}</a>
+            <span class="block text-sm text-gray-500">
+              {SOURCE_LABELS[p.source] ?? p.source} · {timeAgo(p.posted_at)}{p.post_type && ` · ${p.post_type}`} · {p.status}
+            </span>
+          </span>
+          {p.status === "queued" && (
+            <a href={`/admin/queue/${p.id}/reassign`} class={`${btnSecondary} shrink-0`}>Move</a>
+          )}
+        </li>
+      ))}
+    </ul>
+    {tool.postCount > tool.posts.length && <p class="mt-2 text-sm text-gray-500">Showing the latest {tool.posts.length} of {tool.postCount}.</p>}
+  </section>
+
+  <section class="mt-6">
+    <h2 class="text-lg font-semibold">{tool.status === "hidden" ? "Hidden" : "Hide this tool"}</h2>
+    <p class="mt-1 text-sm text-gray-600">
+      Hidden tools disappear from public pages. Their posts stay linked, so new posts about them stay hidden too.
+    </p>
+    <form method="post" class="mt-2">
+      <input type="hidden" name="action" value={tool.status === "hidden" ? "unhide" : "hide"} />
+      <button type="submit" class={`${tool.status === "hidden" ? btnSecondary : btnReject} w-full`}>
+        {tool.status === "hidden" ? "Show this tool again" : "Hide this tool"}
+      </button>
+    </form>
+  </section>
+</Admin>
