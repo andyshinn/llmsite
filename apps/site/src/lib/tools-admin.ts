@@ -302,17 +302,17 @@ export async function mergeTools(db: D1Database, fromId: number, intoId: number)
     db
       .prepare(
         `UPDATE tools SET
-           github_repo = coalesce(github_repo, f.github_repo),
-           homepage_url = coalesce(homepage_url, f.homepage_url),
-           description = coalesce(description, f.description),
-           category = coalesce(category, f.category),
-           is_open_source = coalesce(is_open_source, f.is_open_source),
+           github_repo = coalesce(tools.github_repo, f.github_repo),
+           homepage_url = coalesce(tools.homepage_url, f.homepage_url),
+           description = coalesce(tools.description, f.description),
+           category = coalesce(tools.category, f.category),
+           is_open_source = coalesce(tools.is_open_source, f.is_open_source),
            tags = (SELECT json_group_array(DISTINCT value) FROM (SELECT value FROM json_each(tools.tags) UNION SELECT value FROM json_each(f.tags))),
-           first_seen_at = min(first_seen_at, f.first_seen_at),
-           last_post_at = (SELECT max(posted_at) FROM posts WHERE tool_id = tools.id),
+           first_seen_at = min(tools.first_seen_at, f.first_seen_at),
+           last_post_at = (SELECT max(p.posted_at) FROM posts p WHERE p.tool_id = tools.id),
            is_active = 1,
-           status = CASE WHEN status = 'queued' AND EXISTS (SELECT 1 FROM posts WHERE tool_id = tools.id AND status = 'published')
-             THEN 'published' ELSE status END
+           status = CASE WHEN tools.status = 'queued' AND EXISTS (SELECT 1 FROM posts p WHERE p.tool_id = tools.id AND p.status = 'published')
+             THEN 'published' ELSE tools.status END
          FROM (SELECT * FROM tools WHERE id = ?2) AS f
          WHERE tools.id = ?1`,
       )
