@@ -214,7 +214,7 @@ All state lives in one D1 database. Extracted article text is stored in R2, keye
 
 ## Frontend
 
-The site is Astro with the Cloudflare adapter, deployed as a Worker with static assets on the custom domain `slopbucket.app` (no `workers.dev` URL). Pages are server-rendered from D1 and cached at the edge, with the cache cleared after each daily run. That keeps pages fast and indexable without a rebuild per day.
+The site is Astro with the Cloudflare adapter, deployed as a Worker with static assets on the custom domain `slopbucket.app` (no `workers.dev` URL). The domain is attached in the dashboard, not in `wrangler.jsonc`, so deploys need no zone permissions. Pages are server-rendered from D1 and cached at the edge, with the cache cleared after each daily run. That keeps pages fast and indexable without a rebuild per day.
 
 | Route | Content |
 | --- | --- |

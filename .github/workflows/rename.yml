@@ -154,7 +154,7 @@ jobs:
             *) echo "::error::Deleting radar-site failed ($code): $(jq -c .errors out.json)"; exit 1 ;;
           esac
           {
-            echo "Done. Check https://slopbucket.app/api/health and /admin."
+            echo "Done. Attach slopbucket.app to sb-site (Workers & Pages > sb-site > Settings > Domains & Routes > Add > Custom domain), then check https://slopbucket.app/api/health and /admin."
             echo "When it looks right, run this workflow again with step \"cleanup\" to delete the old radar resources."
           } >> "$GITHUB_STEP_SUMMARY"
 

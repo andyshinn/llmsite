@@ -4,9 +4,9 @@
   "main": "@astrojs/cloudflare/entrypoints/server",
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
-  // Served only on the custom domain (the zone is in this Cloudflare account; the
-  // API token needs Zone > Workers Routes > Edit on it).
-  "routes": [{ "pattern": "slopbucket.app", "custom_domain": true }],
+  // Served only on the slopbucket.app custom domain, which is attached in the
+  // dashboard (Workers & Pages > sb-site > Settings > Domains & Routes). With no
+  // "routes" key here, deploys leave it alone.
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true },
