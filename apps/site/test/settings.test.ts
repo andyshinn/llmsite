@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getSetting } from "@radar/core";
+import { getSetting } from "@slop-bucket/core";
 import { describe, expect, it } from "vitest";
 import { SETTING_FIELDS, SettingError, formatTagGroups, loadSettings, saveSetting, suggestedTags } from "../src/lib/settings-admin.ts";
 

@@ -20,6 +20,6 @@ Labeling rules:
   they go in the `mcp-general` category). The "all" score is the one that
   matters; "strict MCP" shows how the model treats non-coding MCP servers.
 
-Run `pnpm --filter @radar/ingest eval:classifier -- --model <id> [--reasoning low]`
+Run `pnpm --filter @slop-bucket/ingest eval:classifier -- --model <id> [--reasoning low]`
 (see `apps/ingest/scripts/eval-classifier.ts`). It needs a Cloudflare credential
 with Workers AI access and fetches each post's text once into `.cache/`.

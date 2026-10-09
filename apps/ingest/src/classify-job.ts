@@ -1,4 +1,4 @@
-import { type Classification, type ClassifyJob, type TagGroups, classificationSchema, getSetting, resolveTool, tagSlugs } from "@radar/core";
+import { type Classification, type ClassifyJob, type TagGroups, classificationSchema, getSetting, resolveTool, tagSlugs } from "@slop-bucket/core";
 import { type FewShotExample, classifierFingerprint, classifyPost } from "./classifier.ts";
 import { getArticleText } from "./content.ts";
 import type { Deps } from "./deps.ts";

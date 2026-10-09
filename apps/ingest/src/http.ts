@@ -1,6 +1,6 @@
 import type { Fetcher } from "./deps.ts";
 
-export const USER_AGENT = "ai-coding-tools-radar/0.1 (+https://radar-site.andyshinn.workers.dev)";
+export const USER_AGENT = "slop-bucket/0.1 (+https://slopbucket.app)";
 
 export async function getJson(fetcher: Fetcher, url: string, headers: Record<string, string> = {}): Promise<unknown> {
   const res = await fetcher(url, {

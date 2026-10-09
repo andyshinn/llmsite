@@ -1,5 +1,5 @@
 {
-  "id": "radar",
+  "id": "sb",
   "workers_ai_billing_mode": "postpaid",
   "authentication": false,
   "collect_logs": false,

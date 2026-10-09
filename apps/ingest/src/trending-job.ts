@@ -1,4 +1,4 @@
-import { type TrendingJob, getSetting } from "@radar/core";
+import { type TrendingJob, getSetting } from "@slop-bucket/core";
 import type { Deps } from "./deps.ts";
 import { USER_AGENT, getJson } from "./http.ts";
 

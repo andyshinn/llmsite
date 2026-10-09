@@ -1,4 +1,4 @@
-import type { Source } from "@radar/core";
+import type { Source } from "@slop-bucket/core";
 import { github } from "./github.ts";
 import { hn } from "./hn.ts";
 import { lobsters } from "./lobsters.ts";

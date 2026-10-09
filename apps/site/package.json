@@ -1,5 +1,5 @@
 {
-  "name": "@radar/site",
+  "name": "@slop-bucket/site",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.3",
-    "@radar/core": "workspace:*",
+    "@slop-bucket/core": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.3.5",
     "heroicons": "^2.2.0",

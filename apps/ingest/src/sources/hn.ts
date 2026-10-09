@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { NormalizedPost } from "@radar/core";
+import type { NormalizedPost } from "@slop-bucket/core";
 import { getJson } from "../http.ts";
 import type { Adapter } from "./types.ts";
 

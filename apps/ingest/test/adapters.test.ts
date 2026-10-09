@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizedPostSchema, type NormalizedPost } from "@radar/core";
+import { normalizedPostSchema, type NormalizedPost } from "@slop-bucket/core";
 import { hn } from "../src/sources/hn.ts";
 import { MAX_PAGES, lobsters, newestPageUrl } from "../src/sources/lobsters.ts";
 import hnSearch from "./fixtures/hn-search.json";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Classification, type TagGroups, classificationJsonSchema, classificationSchema, tagSlugs } from "@radar/core";
+import { type Classification, type TagGroups, classificationJsonSchema, classificationSchema, tagSlugs } from "@slop-bucket/core";
 import type { RunModel } from "./deps.ts";
 
 export interface PostInput {

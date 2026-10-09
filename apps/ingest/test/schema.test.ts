@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { SETTING_KEYS, getSetting } from "@radar/core";
+import { SETTING_KEYS, getSetting } from "@slop-bucket/core";
 
 describe("migration 0001", () => {
   it("seeds every setting with a valid default", async () => {

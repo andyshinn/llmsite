@@ -21,7 +21,7 @@ jobs:
       - name: Unit tests
         run: pnpm test
       - name: Build site
-        run: pnpm --filter @radar/site build
+        run: pnpm --filter @slop-bucket/site build
       - name: Migration dry run (local D1)
         run: pnpm db:migrate:local
       - name: Validate AI Gateway config

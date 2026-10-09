@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { env } from "cloudflare:workers";
-import { getSetting } from "@radar/core";
+import { getSetting } from "@slop-bucket/core";
 
 // Deploy smoke check: proves the Worker is up, the D1 binding works and
 // migrations have run. Does not expose setting values.

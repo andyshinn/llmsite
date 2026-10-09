@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "radar-ingest",
+  "name": "sb-ingest",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
@@ -11,39 +11,39 @@
   // 06:00 fetches every source; 07:00 refreshes engagement, GitHub stats and trending scores.
   "triggers": { "crons": ["0 6 * * *", "0 7 * * *"] },
 
-  // database_id is written by .github/workflows/bootstrap.yml.
+  // database_id is written by .github/workflows/bootstrap.yml (or rename.yml).
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "radar",
-      "database_id": "1857c1e6-46e4-4de4-bff2-d8148d5a3880",
+      "database_name": "sb",
+      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "../../migrations"
     }
   ],
 
   // Extracted article text, keyed by post ID.
-  "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "radar-articles" }],
+  "r2_buckets": [{ "binding": "ARTICLES", "bucket_name": "sb-articles" }],
 
   "ai": { "binding": "AI" },
 
   // Every Workers AI call goes through this AI Gateway, which enforces the daily
   // spend limit in infra/ai-gateway.json (applied by deploy.yml).
-  "vars": { "AI_GATEWAY_ID": "radar" },
+  "vars": { "AI_GATEWAY_ID": "sb" },
 
   "queues": {
     "producers": [
-      { "binding": "FETCH_QUEUE", "queue": "radar-fetch" },
-      { "binding": "CLASSIFY_QUEUE", "queue": "radar-classify" }
+      { "binding": "FETCH_QUEUE", "queue": "sb-fetch" },
+      { "binding": "CLASSIFY_QUEUE", "queue": "sb-classify" }
     ],
     "consumers": [
       // Gentle on source APIs; a 90-day HN backfill fans out into 90 of these.
-      { "queue": "radar-fetch", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 2 },
+      { "queue": "sb-fetch", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 2 },
       // Two posts at a time: the classifier model (a Workers Paid model) is limited to
       // 20 requests/minute, and with low reasoning one call takes 4-10s, so one at a
       // time managed only ~5 a minute (Oct 2026). Two gives ~10-15 a minute; an
       // occasional 429 is retried a minute or more later. Concurrent tool creation is
       // handled in the resolver.
-      { "queue": "radar-classify", "max_batch_size": 1, "max_retries": 5, "max_concurrency": 2 }
+      { "queue": "sb-classify", "max_batch_size": 1, "max_retries": 5, "max_concurrency": 2 }
     ]
   }
 }

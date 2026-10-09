@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { normalizedPostSchema, type NormalizedPost } from "@radar/core";
+import { normalizedPostSchema, type NormalizedPost } from "@slop-bucket/core";
 import type { Fetcher } from "../src/deps.ts";
 import { DAILY_CREATED_LOOKBACK, github, parseTrending, repoTitle } from "../src/sources/github.ts";
 import type { SourceContext } from "../src/sources/types.ts";

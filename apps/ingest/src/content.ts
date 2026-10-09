@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { z } from "zod";
-import { githubRepoFromUrl } from "@radar/core";
+import { githubRepoFromUrl } from "@slop-bucket/core";
 import type { Deps } from "./deps.ts";
 import { USER_AGENT, getJson } from "./http.ts";
 

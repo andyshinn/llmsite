@@ -57,7 +57,7 @@ it("the 07:00 cron enqueues the daily trending update only", async () => {
 });
 
 it("runs trending jobs from the fetch queue", async () => {
-  const batch = createMessageBatch("radar-fetch", [{ id: "t", timestamp: new Date(), attempts: 1, body: { kind: "trending", mode: "manual" } }]);
+  const batch = createMessageBatch("sb-fetch", [{ id: "t", timestamp: new Date(), attempts: 1, body: { kind: "trending", mode: "manual" } }]);
   const ctx = createExecutionContext();
   await worker.queue(batch, env, ctx);
   const result = await getQueueResult(batch, ctx);
@@ -70,11 +70,11 @@ it("sends every Workers AI call through the AI Gateway", async () => {
   const calls: unknown[][] = [];
   const ai = { run: async (...args: unknown[]) => (calls.push(args), { response: "{}" }) } as unknown as Ai;
   await depsFromEnv({ ...env, AI: ai }).ai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", { messages: [] });
-  expect(calls[0]![2]).toEqual({ gateway: { id: "radar", skipCache: true } });
+  expect(calls[0]![2]).toEqual({ gateway: { id: "sb", skipCache: true } });
 });
 
 it("acks malformed messages and jobs with nothing to do", async () => {
-  const batch = createMessageBatch("radar-fetch", [
+  const batch = createMessageBatch("sb-fetch", [
     { id: "bad", timestamp: new Date(), attempts: 1, body: { kind: "fetch", source: "digg" } },
     { id: "noop", timestamp: new Date(), attempts: 1, body: { kind: "fetch", source: "producthunt", mode: "manual" } },
   ]);
@@ -85,7 +85,7 @@ it("acks malformed messages and jobs with nothing to do", async () => {
 });
 
 it("retries a message whose job throws", async () => {
-  const batch = createMessageBatch("radar-classify", [
+  const batch = createMessageBatch("sb-classify", [
     { id: "boom", timestamp: new Date(), attempts: 2, body: { kind: "classify", post_id: 1 } },
   ]);
   const brokenDb = {
@@ -100,13 +100,13 @@ it("retries a message whose job throws", async () => {
 });
 
 it("ENABLED_SOURCES in core matches the ingest adapters", async () => {
-  const { ENABLED_SOURCES } = await import("@radar/core");
+  const { ENABLED_SOURCES } = await import("@slop-bucket/core");
   const { ADAPTERS } = await import("../src/sources/index.ts");
   expect([...ENABLED_SOURCES].sort()).toEqual(Object.keys(ADAPTERS).sort());
 });
 
 it("WINDOWED_SOURCES in core matches the adapters that fan out", async () => {
-  const { WINDOWED_SOURCES } = await import("@radar/core");
+  const { WINDOWED_SOURCES } = await import("@slop-bucket/core");
   const { ADAPTERS } = await import("../src/sources/index.ts");
   const windowed = Object.entries(ADAPTERS).filter(([, a]) => a.windowed).map(([s]) => s);
   expect([...WINDOWED_SOURCES].sort()).toEqual(windowed.sort());

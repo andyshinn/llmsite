@@ -1,4 +1,4 @@
-import { type ClassifyJob, type FetchJob, type NormalizedPost, canonicalUrl, getSetting, prefilterScore } from "@radar/core";
+import { type ClassifyJob, type FetchJob, type NormalizedPost, canonicalUrl, getSetting, prefilterScore } from "@slop-bucket/core";
 import type { Deps } from "./deps.ts";
 import { ADAPTERS } from "./sources/index.ts";
 
