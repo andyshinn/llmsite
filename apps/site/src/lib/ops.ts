@@ -279,7 +279,8 @@ async function finish(db: D1Database, id: number, now: number): Promise<string> 
 // posts passing the pre-filter per day by source, and GLM 5.3 Flash cost per post.
 const POSTS_PER_DAY: Record<string, number> = { hn: 284, lobsters: 7, github: 25 };
 const COST_PER_POST_USD = 0.0004;
-const CLASSIFY_PER_MINUTE = 18;
+/** Planning rate for estimates (two at a time, 4-10s a call); the In progress section shows the measured rate. */
+export const CLASSIFY_PER_MINUTE = 12;
 
 export function backfillEstimate(choice: string, days: number): { posts: number; costUsd: number; hours: number } {
   const posts = sourcesFor(choice).reduce((n, s) => n + (POSTS_PER_DAY[s] ?? 0) * days, 0);
