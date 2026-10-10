@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Read `docs/DESIGN.md` before starting any task. It is the source of truth for scope, data model and behavior. If a task conflicts with it, stop and say so instead of guessing; if a design decision changes, update `docs/DESIGN.md` in the same PR.
+Read `docs/DESIGN.md` before starting any task, and `docs/PROGRESS.md` for where things stand and what's next (keep it updated in your PRs). It is the source of truth for scope, data model and behavior. If a task conflicts with it, stop and say so instead of guessing; if a design decision changes, update `docs/DESIGN.md` in the same PR.
 
 ## What this is
 
